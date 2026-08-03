@@ -1,0 +1,21 @@
+{
+    "$schema": "./config.schema.json",
+    "schemaVersion": 1,
+    "repositoryId": "example-repository",
+    "learningGlobs": ["learning-artifacts/*.md"],
+    "proposalGlobs": ["learning-artifacts/proposals/*-proposals.md"],
+    "receiptGlobs": ["learning-artifacts/proposals/*-promoted.md"],
+    "targets": [
+        {
+            "id": "local-standards",
+            "adapter": "skill-reference",
+            "path": "standards/learned-standards.md",
+            "validators": [
+                {
+                    "command": "node",
+                    "args": ["scripts/validate-standards.mjs"]
+                }
+            ]
+        }
+    ]
+}

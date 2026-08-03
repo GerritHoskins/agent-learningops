@@ -1,0 +1,111 @@
+{
+    "name": "agent-learningops",
+    "version": "0.1.0",
+    "description": "Standalone local-first LearningOps core, CLI, and MCP server for auditable agent-learning workflows.",
+    "type": "module",
+    "main": "./dist/electron/main.js",
+    "productName": "Agent LearningOps",
+    "license": "UNLICENSED",
+    "author": "Agent LearningOps Contributors",
+    "packageManager": "pnpm@11.18.0",
+    "engines": {
+        "node": ">=24.13.0"
+    },
+    "bin": {
+        "learningops": "./dist/cli.js"
+    },
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+        },
+        "./server": {
+            "types": "./dist/server.d.ts",
+            "default": "./dist/server.js"
+        },
+        "./config.schema.json": "./config.schema.json"
+    },
+    "files": [
+        "dist/",
+        "config.schema.json",
+        "agent-learningops.config.example.json",
+        "README.md"
+    ],
+    "scripts": {
+        "build": "pnpm clean:dist && pnpm build:core && pnpm build:renderer",
+        "build:core": "tsc -p tsconfig.build.json",
+        "build:renderer": "vite build",
+        "clean:dist": "node --input-type=module --eval \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\"",
+        "clean:package": "node --input-type=module --eval \"import { rmSync } from 'node:fs'; rmSync('release', { recursive: true, force: true })\"",
+        "cli": "tsx src/cli.ts",
+        "cli:built": "node dist/cli.js",
+        "cli:built:smoke": "tsx test/smoke/built-cli-smoke.ts",
+        "cli:smoke": "tsx test/smoke/cli-smoke.ts",
+        "lint:js": "eslint src/ test/ *.config.ts eslint.config.js",
+        "lint:js:fix": "eslint src/ test/ *.config.ts eslint.config.js --fix",
+        "mcp": "tsx src/server.ts",
+        "mcp:built": "node dist/server.js",
+        "mcp:built:smoke": "tsx test/smoke/built-mcp-smoke.ts",
+        "mcp:smoke": "tsx test/smoke/mcp-smoke.ts",
+        "dev:renderer": "vite --host 127.0.0.1",
+        "electron:start": "pnpm build && electron .",
+        "test:benchmark": "tsx test/smoke/benchmark-smoke.ts",
+        "smoke:package-layout": "tsx test/smoke/package-layout-smoke.ts",
+        "smoke:packaged-worker": "tsx test/smoke/packaged-worker-smoke.ts",
+        "test:unit": "vitest --run",
+        "test:unit:coverage": "vitest --run --coverage",
+        "test:unit:watch": "vitest --watch",
+        "typecheck": "tsc -p tsconfig.json",
+        "package:mac:dir": "pnpm clean:package && pnpm build && ELECTRON_CACHE=\"$PWD/.cache/electron\" ELECTRON_BUILDER_CACHE=\"$PWD/.cache/electron-builder\" electron-builder --mac dir --publish never"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.30.0",
+        "zod": "^4.4.3"
+    },
+    "devDependencies": {
+        "@eslint/js": "^10.0.1",
+        "@skeletonlabs/skeleton": "^5.0.0",
+        "@skeletonlabs/skeleton-svelte": "^5.0.0",
+        "@sveltejs/vite-plugin-svelte": "^7.2.0",
+        "@tanstack/table-core": "^8.21.3",
+        "@tailwindcss/vite": "^4.3.3",
+        "@testing-library/jest-dom": "^7.0.0",
+        "@testing-library/svelte": "^5.4.2",
+        "@types/node": "^24.13.3",
+        "@vitest/coverage-v8": "^4.1.10",
+        "echarts": "^6.1.0",
+        "electron": "^43.2.0",
+        "electron-builder": "^26.15.3",
+        "eslint": "^10.8.0",
+        "globals": "^17.9.0",
+        "jsdom": "^28.1.0",
+        "svelte": "^5.56.8",
+        "tailwindcss": "^4.3.3",
+        "tsx": "^4.23.5",
+        "typescript": "^5.9.3",
+        "typescript-eslint": "^8.65.0",
+        "vite": "^8.2.0",
+        "vitest": "^4.1.10"
+    },
+    "build": {
+        "appId": "local.agent-learningops.desktop",
+        "productName": "Agent LearningOps",
+        "asar": false,
+        "npmRebuild": false,
+        "directories": {
+            "output": "release"
+        },
+        "files": [
+            "dist/**/*",
+            "package.json",
+            "config.schema.json",
+            "agent-learningops.config.example.json",
+            "README.md"
+        ],
+        "mac": {
+            "category": "public.app-category.developer-tools",
+            "identity": null,
+            "target": ["dir"]
+        }
+    }
+}

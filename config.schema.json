@@ -1,0 +1,96 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://agent-learningops.local/schemas/config.schema.json",
+    "title": "Agent LearningOps configuration",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["schemaVersion", "repositoryId"],
+    "properties": {
+        "$schema": {
+            "type": "string"
+        },
+        "schemaVersion": {
+            "const": 1
+        },
+        "repositoryId": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+        },
+        "learningGlobs": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+            },
+            "default": ["learning-artifacts/*.md"]
+        },
+        "proposalGlobs": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+            },
+            "default": []
+        },
+        "receiptGlobs": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+            },
+            "default": []
+        },
+        "targets": {
+            "type": "array",
+            "default": [],
+            "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "adapter", "path"],
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "\\S"
+                    },
+                    "adapter": {
+                        "type": "string",
+                        "enum": ["markdown-section", "skill-reference"]
+                    },
+                    "path": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "\\S"
+                    },
+                    "validators": {
+                        "type": "array",
+                        "default": [],
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["command", "args"],
+                            "properties": {
+                                "command": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "pattern": "\\S"
+                                },
+                                "args": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "default": []
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

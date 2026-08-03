@@ -1,0 +1,27 @@
+{
+    "compilerOptions": {
+        "allowSyntheticDefaultImports": true,
+        "declaration": false,
+        "esModuleInterop": true,
+        "exactOptionalPropertyTypes": true,
+        "forceConsistentCasingInFileNames": true,
+        "isolatedModules": true,
+        "lib": ["ES2024", "DOM"],
+        "module": "NodeNext",
+        "moduleDetection": "force",
+        "moduleResolution": "NodeNext",
+        "noEmit": true,
+        "noFallthroughCasesInSwitch": true,
+        "noImplicitOverride": true,
+        "noImplicitReturns": true,
+        "noUncheckedIndexedAccess": true,
+        "rootDir": ".",
+        "skipLibCheck": true,
+        "strict": true,
+        "target": "ES2024",
+        "types": ["node", "vitest"],
+        "useDefineForClassFields": true,
+        "verbatimModuleSyntax": true
+    },
+    "include": ["src/**/*.ts", "test/**/*.ts", "vitest.config.ts"]
+}
