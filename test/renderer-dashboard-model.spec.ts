@@ -42,6 +42,34 @@ describe('renderer dashboard model', () => {
             }),
         ])
     })
+
+    it('applies inbox skill and since filters to visible learning rows only', () => {
+        const snapshot = createSnapshot()
+        snapshot.learnings.push({
+            id: 'learning_2',
+            sourcePath: '/tmp/fixture/.ms-artifacts/learnings/second.md',
+            skill: 'local-review',
+            ticket: 'SAPP-2',
+            date: '2026-07-30',
+            candidateRules: ['Prefer targeted regression tests.'],
+            warnings: [],
+            importedAt: '2026-08-03T00:00:00.000Z',
+        })
+
+        expect(createDashboardTables(snapshot).learningRows.map((row) => row.id)).toEqual(['learning_1', 'learning_2'])
+        expect(
+            createDashboardTables(snapshot, {
+                learningSkillFilter: 'plan',
+                learningSinceFilter: '2026-08-01',
+            }).learningRows.map((row) => row.id),
+        ).toEqual(['learning_1'])
+        expect(
+            createDashboardTables(snapshot, {
+                learningSkillFilter: 'review',
+                learningSinceFilter: '2026-08-01',
+            }).learningRows,
+        ).toEqual([])
+    })
 })
 
 function createSnapshot(): DashboardSnapshot {

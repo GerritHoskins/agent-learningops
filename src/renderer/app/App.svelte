@@ -52,6 +52,8 @@
     $: tables = snapshot
         ? createDashboardTables(snapshot, {
               learningFilter,
+              learningSkillFilter: importSkill,
+              learningSinceFilter: importSince,
               learningSorting,
               proposalSorting: [{ id: 'id', desc: true }],
               auditSorting: [{ id: 'at', desc: true }],
@@ -138,11 +140,8 @@
 
     async function importMarkdown() {
         await runAction('Importing learnings', async () => {
-            const imported = await window.learningOps.importMarkdown({
-                ...(importSkill ? { skill: importSkill } : {}),
-                ...(importSince ? { since: importSince } : {}),
-            })
-            setSnapshot(imported, `Imported ${imported.overview.counts.learnings} learnings.`)
+            const imported = await window.learningOps.importMarkdown({})
+            setSnapshot(imported, `Imported ${imported.overview.counts.learnings} configured learnings.`)
         })
     }
 
@@ -461,15 +460,15 @@
                                 <p class="eyebrow">Capture</p>
                                 <h3>Learning inbox</h3>
                             </div>
-                            <button type="button" disabled={busy} on:click={importMarkdown}>Import</button>
+                            <button type="button" disabled={busy} on:click={importMarkdown}>Import configured files</button>
                         </div>
                         <div class="filters">
                             <label>
-                                Skill
+                                Filter skill
                                 <input bind:value={importSkill} placeholder="local-plan" />
                             </label>
                             <label>
-                                Since
+                                Filter since
                                 <input bind:value={importSince} placeholder="2026-08-01" />
                             </label>
                             <label>
@@ -485,6 +484,9 @@
                                 </select>
                             </label>
                         </div>
+                        <p class="form-hint">
+                            Import reads configured repository globs. Use Workspace Browse to choose a repository.
+                        </p>
                         {#if latestImportSummary}
                             <p class="form-hint">{latestImportSummary}</p>
                         {/if}

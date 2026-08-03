@@ -65,6 +65,19 @@ describe('renderer dashboard app', () => {
         expect(screen.getByText('No learnings in scope')).toBeInTheDocument()
     })
 
+    it('imports configured repository globs without treating visible filters as import options', async () => {
+        render(App)
+        await fireEvent.click(screen.getByRole('button', { name: 'Browse' }))
+
+        await fireEvent.input(await screen.findByLabelText('Filter skill'), { target: { value: 'local-plan' } })
+        await fireEvent.input(screen.getByLabelText('Filter since'), { target: { value: '2026-08-01' } })
+        await fireEvent.click(screen.getByRole('button', { name: 'Import configured files' }))
+
+        await waitFor(() => expect(api.importMarkdown).toHaveBeenCalledWith({}))
+        expect(api.importMarkdown).not.toHaveBeenCalledWith(expect.objectContaining({ skill: expect.any(String) }))
+        expect(api.importMarkdown).not.toHaveBeenCalledWith(expect.objectContaining({ since: expect.any(String) }))
+    })
+
     it('records proposal decisions with dashboard defaults when actor and rationale are blank', async () => {
         render(App)
         await fireEvent.click(screen.getByRole('button', { name: 'Browse' }))

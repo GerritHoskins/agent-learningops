@@ -52,6 +52,8 @@ export interface AuditRow {
 
 export interface DashboardTableState {
     learningFilter?: string
+    learningSkillFilter?: string
+    learningSinceFilter?: string
     learningSorting?: SortingState
     proposalSorting?: SortingState
     auditSorting?: SortingState
@@ -113,13 +115,15 @@ export function createMetricCards(snapshot: DashboardSnapshot): MetricCard[] {
 }
 
 export function createDashboardTables(snapshot: DashboardSnapshot, state: DashboardTableState = {}): DashboardTables {
-    const learningRows = snapshot.learnings.map((learning) => ({
-        id: learning.id,
-        skill: learning.skill ?? 'unclassified',
-        ticket: learning.ticket ?? '-',
-        source: formatFileName(learning.sourcePath),
-        warnings: learning.warnings.length,
-    }))
+    const learningRows = snapshot.learnings
+        .filter((learning) => matchesLearningScope(learning, state))
+        .map((learning) => ({
+            id: learning.id,
+            skill: learning.skill ?? 'unclassified',
+            ticket: learning.ticket ?? '-',
+            source: formatFileName(learning.sourcePath),
+            warnings: learning.warnings.length,
+        }))
     const proposalRows = snapshot.proposals.map((proposal) => {
         const counts = countProposalClassifications(proposal.items)
         return {
@@ -210,6 +214,15 @@ function createDataTable<T>(
 
 function getTableRows<T>(table: Table<T>): T[] {
     return table.getRowModel().rows.map((row) => row.original)
+}
+
+function matchesLearningScope(learning: DashboardSnapshot['learnings'][number], state: DashboardTableState): boolean {
+    const skillFilter = state.learningSkillFilter?.trim().toLowerCase()
+    const sinceFilter = state.learningSinceFilter?.trim()
+    const matchesSkill = !skillFilter || (learning.skill ?? '').toLowerCase().includes(skillFilter)
+    const matchesSince = !sinceFilter || Boolean(learning.date && learning.date >= sinceFilter)
+
+    return matchesSkill && matchesSince
 }
 
 function countProposalClassifications(items: ProposalItem[]): Record<ProposalItem['classification'], number> {
