@@ -42,6 +42,7 @@
     let chartElement: HTMLDivElement | undefined
     let chart: import('echarts').ECharts | undefined
     let initChart: typeof import('echarts').init | undefined
+    const defaultDecisionActor = 'dashboard-user'
 
     $: metrics = snapshot ? createMetricCards(snapshot) : []
     $: filteredClusters = snapshot ? filterClusters(snapshot.clusters, clusterFilter) : []
@@ -63,7 +64,7 @@
             (!selectedTargetId || item.targetId === selectedTargetId || !item.targetId) &&
             !hasDecision(snapshot, activeProposal.id, item.id),
     )
-    $: canRecordDecision = Boolean(decisionActor.trim() && decisionRationale.trim())
+    $: canRecordDecision = Boolean(pendingProposalItem)
     $: approvedPatchItemCount = countApprovedPatchItems(snapshot, activeProposal, selectedTargetId)
     $: canPreviewPatch = Boolean(selectedProposalId && selectedTargetId && approvedPatchItemCount > 0)
     $: patchPreviewHint = createPatchPreviewHint(snapshot, activeProposal, selectedTargetId, approvedPatchItemCount)
@@ -170,9 +171,10 @@
                 proposalId: activeProposal.id,
                 itemId: pendingProposalItem.id,
                 decision,
-                actor: decisionActor,
-                rationale: decisionRationale,
+                actor: decisionActor.trim() || defaultDecisionActor,
+                rationale: decisionRationale.trim() || defaultDecisionRationale(decision, pendingProposalItem.ruleText),
             })
+            decisionRationale = ''
             setSnapshot(decided, `Recorded ${decision} for ${pendingProposalItem.id}.`, 'decisions')
         })
     }
@@ -243,6 +245,11 @@
         return Boolean(
             nextSnapshot?.decisions.some((decision) => decision.proposalId === proposalId && decision.itemId === itemId),
         )
+    }
+
+    function defaultDecisionRationale(decision: DecisionKind, ruleText: string): string {
+        const action = decision === 'approve' ? 'Approved' : decision === 'reject' ? 'Rejected' : 'Deferred'
+        return `${action} from the dashboard review queue: ${ruleText}`
     }
 
     function countApprovedPatchItems(
@@ -637,7 +644,7 @@
                                     Defer
                                 </button>
                             </div>
-                            <p class="form-hint">Actor and rationale are required to create an auditable receipt.</p>
+                            <p class="form-hint">Blank fields use dashboard defaults; custom actor and rationale are preserved.</p>
                         {:else}
                             <h3>No pending proposal item</h3>
                             <p class="muted">Create a proposal or select one with undecided items.</p>

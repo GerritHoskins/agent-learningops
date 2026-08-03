@@ -65,21 +65,43 @@ describe('renderer dashboard app', () => {
         expect(screen.getByText('No learnings in scope')).toBeInTheDocument()
     })
 
-    it('requires actor and rationale before recording proposal decisions', async () => {
+    it('records proposal decisions with dashboard defaults when actor and rationale are blank', async () => {
+        render(App)
+        await fireEvent.click(screen.getByRole('button', { name: 'Browse' }))
+        await fireEvent.click(await screen.findByRole('button', { name: 'Proposals' }))
+
+        await fireEvent.change(screen.getByLabelText('Target'), { target: { value: 'team-standards' } })
+
+        for (const label of ['Approve', 'Reject', 'Defer']) {
+            expect(screen.getByRole('button', { name: label })).toBeEnabled()
+        }
+
+        await fireEvent.click(screen.getByRole('button', { name: 'Reject' }))
+
+        await waitFor(() =>
+            expect(api.recordProposalDecision).toHaveBeenCalledWith({
+                proposalId: 'proposal_1',
+                itemId: 'item_2',
+                decision: 'reject',
+                actor: 'dashboard-user',
+                rationale: 'Rejected from the dashboard review queue: Verify uncertain evidence.',
+            }),
+        )
+    })
+
+    it('preserves custom actor and rationale when recording proposal decisions', async () => {
         render(App)
         await fireEvent.click(screen.getByRole('button', { name: 'Browse' }))
         await fireEvent.click(await screen.findByRole('button', { name: 'Proposals' }))
 
         await fireEvent.change(screen.getByLabelText('Target'), { target: { value: 'team-standards' } })
         const approve = screen.getByRole('button', { name: 'Approve' })
-        expect(approve).toBeDisabled()
+        expect(approve).toBeEnabled()
 
         await fireEvent.input(screen.getByLabelText('Actor'), { target: { value: 'gerrit' } })
         await fireEvent.input(screen.getByLabelText('Rationale'), {
             target: { value: 'Evidence is current and target hash was reviewed.' },
         })
-        expect(approve).toBeEnabled()
-
         await fireEvent.click(approve)
 
         await waitFor(() =>
