@@ -21,6 +21,15 @@ describe('state directory resolution', () => {
         )
     })
 
+    it('isolates repositories that share the same repository id', () => {
+        process.env.XDG_STATE_HOME = '/tmp/learningops-state'
+        const config = configSchema.parse({ schemaVersion: 1, repositoryId: 'fixture-repository' })
+
+        expect(resolveStateDirectory(config, '/tmp/repository-one')).not.toBe(
+            resolveStateDirectory(config, '/tmp/repository-two'),
+        )
+    })
+
     it('walks upward when the config is absent from a nested directory', async () => {
         const root = await mkdtemp(join(tmpdir(), 'learningops-root-'))
         const nested = join(root, 'nested')

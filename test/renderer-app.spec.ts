@@ -78,7 +78,7 @@ describe('renderer dashboard app', () => {
         expect(api.importMarkdown).not.toHaveBeenCalledWith(expect.objectContaining({ since: expect.any(String) }))
     })
 
-    it('records proposal decisions with dashboard defaults when actor and rationale are blank', async () => {
+    it('requires explicit actor and rationale before recording a decision', async () => {
         render(App)
         await fireEvent.click(screen.getByRole('button', { name: 'Browse' }))
         await fireEvent.click(await screen.findByRole('button', { name: 'Proposals' }))
@@ -86,9 +86,13 @@ describe('renderer dashboard app', () => {
         await fireEvent.change(screen.getByLabelText('Target'), { target: { value: 'team-standards' } })
 
         for (const label of ['Approve', 'Reject', 'Defer']) {
-            expect(screen.getByRole('button', { name: label })).toBeEnabled()
+            expect(screen.getByRole('button', { name: label })).toBeDisabled()
         }
 
+        await fireEvent.input(screen.getByLabelText('Actor'), { target: { value: 'dashboard-user' } })
+        await fireEvent.input(screen.getByLabelText('Rationale'), {
+            target: { value: 'Rejected from the dashboard review queue.' },
+        })
         await fireEvent.click(screen.getByRole('button', { name: 'Reject' }))
 
         await waitFor(() =>
@@ -97,7 +101,7 @@ describe('renderer dashboard app', () => {
                 itemId: 'item_2',
                 decision: 'reject',
                 actor: 'dashboard-user',
-                rationale: 'Rejected from the dashboard review queue: Verify uncertain evidence.',
+                rationale: 'Rejected from the dashboard review queue.',
             }),
         )
     })
@@ -109,7 +113,7 @@ describe('renderer dashboard app', () => {
 
         await fireEvent.change(screen.getByLabelText('Target'), { target: { value: 'team-standards' } })
         const approve = screen.getByRole('button', { name: 'Approve' })
-        expect(approve).toBeEnabled()
+        expect(approve).toBeDisabled()
 
         await fireEvent.input(screen.getByLabelText('Actor'), { target: { value: 'gerrit' } })
         await fireEvent.input(screen.getByLabelText('Rationale'), {

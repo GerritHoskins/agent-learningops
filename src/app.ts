@@ -6,7 +6,7 @@ import { findRepositoryRoot, loadConfig } from './config/schema.js'
 import { resolveStateDirectory } from './config/state-dir.js'
 import { recordDecision } from './decisions/decision-service.js'
 import { contentId, fileHash } from './domain/ids.js'
-import type { Capability, DecisionKind, LearningOpsConfig, Proposal } from './domain/schemas.js'
+import type { Capability, DecisionKind, Evidence, Learning, LearningOpsConfig, Proposal } from './domain/schemas.js'
 import { exportProposalMarkdown } from './exporters/proposal-markdown.js'
 import { exportReceiptMarkdown } from './exporters/receipt-markdown.js'
 import { importLearningMarkdown } from './importers/learning-markdown.js'
@@ -26,7 +26,7 @@ export interface LearningOpsApp {
 export async function createLearningOpsApp(repositoryRoot = process.cwd()): Promise<LearningOpsApp> {
     const resolvedRoot = await findRepositoryRoot(repositoryRoot)
     const config = await loadConfig(resolvedRoot)
-    const stateDirectory = resolveStateDirectory(config)
+    const stateDirectory = resolveStateDirectory(config, resolvedRoot)
     const store = new SqliteLearningStore(join(stateDirectory, 'learningops.sqlite'))
     await store.initialize()
 
@@ -41,7 +41,7 @@ export async function createLearningOpsApp(repositoryRoot = process.cwd()): Prom
 }
 
 export async function initApp(app: LearningOpsApp): Promise<{ repositoryId: string; state: string }> {
-    const stateDirectory = resolveStateDirectory(app.config)
+    const stateDirectory = resolveStateDirectory(app.config, app.repositoryRoot)
     await mkdir(stateDirectory, { recursive: true, mode: 0o700 })
     return { repositoryId: app.config.repositoryId, state: stateDirectory }
 }
@@ -79,6 +79,71 @@ export async function importMarkdown(app: LearningOpsApp, options: { since?: str
         },
     })
     return result
+}
+
+export async function submitLearning(
+    app: LearningOpsApp,
+    input: { text: string; skill?: string; ticket?: string },
+): Promise<{ id: string; status: 'captured'; learningId: string; evidenceId: string }> {
+    const rawText = input.text.trim()
+    if (!rawText) {
+        throw new Error('Learning text must not be empty')
+    }
+
+    const now = new Date().toISOString()
+    const sourcePath = `mcp://submitted/${contentId('source', {
+        repositoryId: app.config.repositoryId,
+        rawText,
+        skill: input.skill,
+        ticket: input.ticket,
+    })}.md`
+    const sourceHash = fileHash(rawText)
+    const learningId = contentId('learning', {
+        repositoryId: app.config.repositoryId,
+        sourcePath,
+        sourceHash,
+    })
+    const evidenceId = contentId('evidence', { repositoryId: app.config.repositoryId, learningId, rawText })
+    const lineageId = contentId('lineage', { repositoryId: app.config.repositoryId, sourcePath })
+    const learning: Learning = {
+        schemaVersion: 1,
+        id: learningId,
+        repositoryId: app.config.repositoryId,
+        sourcePath,
+        sourceHash,
+        contentHash: sourceHash,
+        ...(input.skill ? { skill: input.skill } : {}),
+        ...(input.ticket ? { ticket: input.ticket } : {}),
+        rawText,
+        candidateRules: [rawText],
+        warnings: [],
+        importedAt: now,
+    }
+    const evidence: Evidence = {
+        id: evidenceId,
+        learningId,
+        repositoryId: app.config.repositoryId,
+        sourcePath,
+        sourceHash,
+        canonicalLineageId: lineageId,
+        ...(input.skill ? { skill: input.skill } : {}),
+        ...(input.ticket ? { ticket: input.ticket } : {}),
+        rawFragment: rawText,
+    }
+
+    await app.store.putLearning(learning)
+    await app.store.putEvidence(evidence)
+    await app.store.appendEvent({
+        schemaVersion: 1,
+        id: contentId('event', { type: 'capture-mcp', at: now, learningId }),
+        repositoryId: app.config.repositoryId,
+        type: 'capture-mcp',
+        subjectId: learningId,
+        at: now,
+        data: { source: 'mcp', skill: input.skill ?? '', ticket: input.ticket ?? '' },
+    })
+
+    return { id: learningId, status: 'captured', learningId, evidenceId }
 }
 
 export async function clusterLearnings(app: LearningOpsApp) {
@@ -128,7 +193,7 @@ function isFullImport(options: { since?: string; skill?: string }): boolean {
 
 export async function recordProposalDecision(
     app: LearningOpsApp,
-    input: { proposalId: string; itemId: string; decision: DecisionKind; actor: string; rationale: string },
+    input: { proposalId: string; itemId: string; decision: DecisionKind; actor: string; rationale: string; now?: string },
 ) {
     const proposal = await requireProposal(app, input.proposalId)
     const item = proposal.items.find((candidate) => candidate.id === input.itemId)
@@ -139,6 +204,7 @@ export async function recordProposalDecision(
         decision: input.decision,
         actor: input.actor,
         rationale: input.rationale,
+        ...(input.now ? { now: input.now } : {}),
         ...(target ? { targetBaseHash: fileHash(await readTargetContent(app.repositoryRoot, target)) } : {}),
     })
     await app.store.putDecision(decision)
@@ -173,7 +239,7 @@ export async function exportMarkdown(
 }
 
 export async function doctor(app: LearningOpsApp) {
-    const stateDirectory = resolveStateDirectory(app.config)
+    const stateDirectory = resolveStateDirectory(app.config, app.repositoryRoot)
     return {
         repositoryId: app.config.repositoryId,
         node: process.version,

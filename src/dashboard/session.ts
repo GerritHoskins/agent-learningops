@@ -396,7 +396,7 @@ function summarizeRepository(app: LearningOpsApp): DashboardRepositorySummary {
     return {
         repositoryRoot: app.repositoryRoot,
         repositoryId: app.config.repositoryId,
-        stateDirectory: resolveStateDirectory(app.config),
+        stateDirectory: resolveStateDirectory(app.config, app.repositoryRoot),
         targetCount: app.config.targets.length,
         targets: app.config.targets.map((target) => ({
             id: target.id,

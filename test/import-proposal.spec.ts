@@ -74,14 +74,29 @@ describe('LearningOps application flow', () => {
             expect(await app.store.listEvidence('fixture')).toHaveLength(2)
             expect(await app.store.listClusters('fixture')).toHaveLength(1)
 
+            const proposal = await proposeLearnings(app)
+            await recordProposalDecision(app, {
+                proposalId: proposal.id,
+                itemId: proposal.items[0]?.id ?? '',
+                decision: 'approve',
+                actor: 'test',
+                rationale: 'fixture approval',
+            })
+            await previewPatch(app, { proposalId: proposal.id, targetId: 'skill-local-standards' })
+            expect(await app.store.listProposals('fixture')).toHaveLength(1)
+            expect(await app.store.listDecisions('fixture')).toHaveLength(1)
+            expect(await app.store.listPatches('fixture')).toHaveLength(1)
+
             await rm(join(root, '.ms-artifacts', 'learnings', 'second.md'))
             const refreshed = await importMarkdown(app)
-            await clusterLearnings(app)
 
             expect(refreshed.learnings).toHaveLength(1)
             expect(await app.store.listLearnings('fixture')).toHaveLength(1)
             expect(await app.store.listEvidence('fixture')).toHaveLength(1)
-            expect(await app.store.listClusters('fixture')).toHaveLength(1)
+            expect(await app.store.listClusters('fixture')).toHaveLength(0)
+            expect(await app.store.listProposals('fixture')).toHaveLength(0)
+            expect(await app.store.listDecisions('fixture')).toHaveLength(0)
+            expect(await app.store.listPatches('fixture')).toHaveLength(0)
         } finally {
             await app.close()
             delete process.env.LEARNINGOPS_STATE_DIR
@@ -124,6 +139,71 @@ describe('LearningOps application flow', () => {
         }
     })
 
+    it('uses the latest decision and preserves managed rules in incremental previews', async () => {
+        const root = await createFixtureRepo()
+        process.env.LEARNINGOPS_STATE_DIR = join(root, '.state-revision')
+        const targetPath = join(root, '.agents', 'skills', 'local-promote-learnings', 'references', 'learned-standards.md')
+        await writeFile(
+            targetPath,
+            [
+                '# Learned standards',
+                '',
+                '<!-- agent-learningops:start -->',
+                '',
+                '## Agent LearningOps Proposals',
+                '',
+                '- Previously promoted rule.',
+                '',
+                '<!-- agent-learningops:end -->',
+                '',
+            ].join('\n'),
+        )
+        const app = await createLearningOpsApp(root)
+
+        try {
+            await importMarkdown(app)
+            await clusterLearnings(app)
+            const proposal = await proposeLearnings(app)
+            const item = proposal.items[0]
+            if (!item) throw new Error('Expected a proposal item')
+
+            await recordProposalDecision(app, {
+                proposalId: proposal.id,
+                itemId: item.id,
+                decision: 'approve',
+                actor: 'test',
+                rationale: 'approve first',
+                now: '2026-08-03T10:00:00.000Z',
+            })
+            await recordProposalDecision(app, {
+                proposalId: proposal.id,
+                itemId: item.id,
+                decision: 'reject',
+                actor: 'test',
+                rationale: 'reject revision',
+                now: '2026-08-03T11:00:00.000Z',
+            })
+            await expect(previewPatch(app, { proposalId: proposal.id, targetId: 'skill-local-standards' })).rejects.toThrow(
+                /No approved proposal items/,
+            )
+
+            await recordProposalDecision(app, {
+                proposalId: proposal.id,
+                itemId: item.id,
+                decision: 'approve',
+                actor: 'test',
+                rationale: 'renew approval',
+                now: '2026-08-03T12:00:00.000Z',
+            })
+            const patch = await previewPatch(app, { proposalId: proposal.id, targetId: 'skill-local-standards' })
+            expect(patch.unifiedDiff).toContain('Previously promoted rule.')
+            expect(patch.unifiedDiff).toContain(item.ruleText)
+        } finally {
+            await app.close()
+            delete process.env.LEARNINGOPS_STATE_DIR
+        }
+    })
+
     it('generates target-specific proposal items and previews only the approved second target', async () => {
         const root = await createFixtureRepo()
         process.env.LEARNINGOPS_STATE_DIR = join(root, '.state-multi-target')
@@ -155,7 +235,7 @@ describe('LearningOps application flow', () => {
                         },
                         {
                             id: 'team-standards',
-                            adapter: 'skill-reference',
+                            adapter: 'markdown-section',
                             path: '.agents/skills/local-promote-learnings/references/team-standards.md',
                             validators: [],
                         },
@@ -198,6 +278,7 @@ describe('LearningOps application flow', () => {
             expect(patch.itemIds).toEqual([secondItem?.id])
             expect(patch.itemIds).not.toContain(firstItem?.id)
             expect(patch.unifiedDiff).toContain('Verify target hashes before patch preview')
+            expect(patch.unifiedDiff).toContain('agent-learningops:markdown-section:start')
             expect(await readFile(firstTargetPath, 'utf8')).toBe(firstBefore)
             expect(await readFile(secondTargetPath, 'utf8')).toBe(secondBefore)
         } finally {

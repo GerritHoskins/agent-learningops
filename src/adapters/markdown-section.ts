@@ -1,21 +1,21 @@
 import type { ProposalItem } from '../domain/schemas.js'
 
-export function renderSkillReference(existingContent: string, approvedItems: ProposalItem[]): string {
-    const markerStart = '<!-- agent-learningops:start -->'
-    const markerEnd = '<!-- agent-learningops:end -->'
-    const existingRules = extractRules(existingContent, markerStart, markerEnd)
+const markerStart = '<!-- agent-learningops:markdown-section:start -->'
+const markerEnd = '<!-- agent-learningops:markdown-section:end -->'
+
+export function renderMarkdownSection(existingContent: string, approvedItems: ProposalItem[]): string {
+    const existingRules = extractRules(existingContent)
     const rules = [...existingRules, ...approvedItems.map((item) => item.ruleText.trim())].filter(
         (rule, index, all) => rule.length > 0 && all.indexOf(rule) === index,
     )
-    const lines = [
+    const section = [
         markerStart,
         '',
         '## Agent LearningOps Proposals',
         '',
         ...rules.flatMap((rule) => [`- ${rule}`, '']),
         markerEnd,
-    ]
-    const section = lines.join('\n').replace(/\n{3,}/g, '\n\n')
+    ].join('\n').replace(/\n{3,}/g, '\n\n')
 
     if (existingContent.includes(markerStart) && existingContent.includes(markerEnd)) {
         return existingContent.replace(
@@ -27,7 +27,7 @@ export function renderSkillReference(existingContent: string, approvedItems: Pro
     return `${existingContent.trimEnd()}\n\n${section}\n`
 }
 
-function extractRules(existingContent: string, markerStart: string, markerEnd: string): string[] {
+function extractRules(existingContent: string): string[] {
     const start = existingContent.indexOf(markerStart)
     const end = existingContent.indexOf(markerEnd, start + markerStart.length)
     if (start < 0 || end < 0) {

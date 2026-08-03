@@ -88,6 +88,10 @@ export class SqliteLearningStore implements LearningStore {
         this.replaceKinds(repositoryId, [
             { kind: 'learning', values: learnings },
             { kind: 'evidence', values: evidence },
+            { kind: 'cluster', values: [] },
+            { kind: 'proposal', values: [] },
+            { kind: 'decision', values: [] },
+            { kind: 'patch', values: [] },
         ])
     }
 

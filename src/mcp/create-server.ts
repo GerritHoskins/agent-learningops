@@ -6,8 +6,8 @@ import {
     previewPatch,
     proposeLearnings,
     recordProposalDecision,
+    submitLearning,
 } from '../app.js'
-import { contentId } from '../domain/ids.js'
 import type { Capability } from '../domain/schemas.js'
 import { readLearningOpsResource } from './resources.js'
 import {
@@ -138,10 +138,13 @@ export async function createLearningOpsMcpServer(
             'submit_learning',
             { title: 'Submit learning', inputSchema: submitLearningInputSchema },
             async ({ text, skill, ticket }) =>
-                jsonToolResult({
-                    id: contentId('submitted', { text, skill, ticket }),
-                    status: 'captured_in_private_state_pending_import_adapter',
-                }),
+                jsonToolResult(
+                    await submitLearning(app, {
+                        text,
+                        ...(skill ? { skill } : {}),
+                        ...(ticket ? { ticket } : {}),
+                    }),
+                ),
         )
     }
 

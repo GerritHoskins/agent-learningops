@@ -24,6 +24,8 @@ export function recordDecision(input: {
         throw new Error('Decision rationale is required.')
     }
 
+    const decidedAt = input.now ?? new Date().toISOString()
+
     return {
         schemaVersion: 1,
         id: contentId('decision', {
@@ -33,6 +35,7 @@ export function recordDecision(input: {
             decision: input.decision,
             actor: input.actor,
             rationale: input.rationale,
+            decidedAt,
         }),
         repositoryId: input.proposal.repositoryId,
         proposalId: input.proposal.id,
@@ -44,7 +47,7 @@ export function recordDecision(input: {
         targetId: item.targetId,
         targetBaseHash: input.targetBaseHash ?? item.targetBaseHash,
         expectedPatchHash: item.expectedPatchHash,
-        decidedAt: input.now ?? new Date().toISOString(),
+        decidedAt,
         stale: false,
     }
 }

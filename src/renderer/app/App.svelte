@@ -34,6 +34,7 @@
     let decisionRationale = ''
     let selectedProposalId = ''
     let selectedTargetId = ''
+    let selectedDecisionItemId = ''
     let exportKind: 'proposal' | 'receipt' = 'proposal'
     let snapshot: DashboardSnapshot | undefined
     let busy = false
@@ -42,7 +43,6 @@
     let chartElement: HTMLDivElement | undefined
     let chart: import('echarts').ECharts | undefined
     let initChart: typeof import('echarts').init | undefined
-    const defaultDecisionActor = 'dashboard-user'
 
     $: metrics = snapshot ? createMetricCards(snapshot) : []
     $: filteredClusters = snapshot ? filterClusters(snapshot.clusters, clusterFilter) : []
@@ -61,11 +61,16 @@
         : undefined
     $: activeProposal = snapshot ? findActiveProposal(snapshot.proposals, selectedProposalId) : undefined
     $: availableTargets = snapshot?.repository.targets ?? []
-    $: pendingProposalItem = activeProposal?.items.find(
-        (item) =>
-            (!selectedTargetId || item.targetId === selectedTargetId || !item.targetId) &&
-            !hasDecision(snapshot, activeProposal.id, item.id),
-    )
+    $: reviewableProposalItems = activeProposal?.items.filter(
+        (item) => !selectedTargetId || item.targetId === selectedTargetId || !item.targetId,
+    ) ?? []
+    $: if (!reviewableProposalItems.some((item) => item.id === selectedDecisionItemId)) {
+        selectedDecisionItemId = ''
+    }
+    $: pendingProposalItem =
+        reviewableProposalItems.find((item) => item.id === selectedDecisionItemId) ??
+        reviewableProposalItems.find((item) => !hasDecision(snapshot, activeProposal?.id, item.id)) ??
+        reviewableProposalItems[0]
     $: canRecordDecision = Boolean(pendingProposalItem)
     $: approvedPatchItemCount = countApprovedPatchItems(snapshot, activeProposal, selectedTargetId)
     $: canPreviewPatch = Boolean(selectedProposalId && selectedTargetId && approvedPatchItemCount > 0)
@@ -117,6 +122,9 @@
     async function switchRepository() {
         await runAction('Switching repository', async () => {
             const switched = await window.learningOps.switchRepository({ repositoryRoot })
+            selectedProposalId = ''
+            selectedTargetId = ''
+            selectedDecisionItemId = ''
             setSnapshot(switched, `Switched to ${switched.repository.repositoryId}`, 'inbox')
         })
     }
@@ -127,6 +135,7 @@
             snapshot = undefined
             selectedProposalId = ''
             selectedTargetId = ''
+            selectedDecisionItemId = ''
             status = 'Repository closed.'
             activeView = 'setup'
         })
@@ -165,16 +174,19 @@
             error = 'Actor and rationale are required before recording a decision.'
             return
         }
+        const currentItemIndex = reviewableProposalItems.findIndex((item) => item.id === pendingProposalItem?.id)
+        const nextItem = reviewableProposalItems[currentItemIndex + 1]
         await runAction('Recording decision', async () => {
             const decided = await window.learningOps.recordProposalDecision({
                 proposalId: activeProposal.id,
                 itemId: pendingProposalItem.id,
                 decision,
-                actor: decisionActor.trim() || defaultDecisionActor,
-                rationale: decisionRationale.trim() || defaultDecisionRationale(decision, pendingProposalItem.ruleText),
+                actor: decisionActor.trim(),
+                rationale: decisionRationale.trim(),
             })
             decisionRationale = ''
-            setSnapshot(decided, `Recorded ${decision} for ${pendingProposalItem.id}.`, 'decisions')
+            selectedDecisionItemId = nextItem?.id ?? ''
+            setSnapshot(decided, `Recorded ${decision} for ${pendingProposalItem.id}.`, 'proposals')
         })
     }
 
@@ -240,15 +252,11 @@
         return proposals.find((proposal) => proposal.id === id) ?? proposals[0]
     }
 
-    function hasDecision(nextSnapshot: DashboardSnapshot | undefined, proposalId: string, itemId: string): boolean {
+    function hasDecision(nextSnapshot: DashboardSnapshot | undefined, proposalId: string | undefined, itemId: string): boolean {
         return Boolean(
-            nextSnapshot?.decisions.some((decision) => decision.proposalId === proposalId && decision.itemId === itemId),
+            proposalId &&
+                nextSnapshot?.decisions.some((decision) => decision.proposalId === proposalId && decision.itemId === itemId),
         )
-    }
-
-    function defaultDecisionRationale(decision: DecisionKind, ruleText: string): string {
-        const action = decision === 'approve' ? 'Approved' : decision === 'reject' ? 'Rejected' : 'Deferred'
-        return `${action} from the dashboard review queue: ${ruleText}`
     }
 
     function countApprovedPatchItems(
@@ -260,16 +268,28 @@
             return 0
         }
 
-        return proposal.items.filter((item) =>
-            nextSnapshot.decisions.some(
-                (decision) =>
-                    decision.proposalId === proposal.id &&
-                    decision.itemId === item.id &&
-                    decision.decision === 'approve' &&
-                    !decision.stale &&
-                    (decision.targetId ?? item.targetId) === targetId,
-            ),
-        ).length
+        return proposal.items.filter((item) => {
+            const decision = latestDecision(nextSnapshot, proposal.id, item.id)
+            return (
+                decision?.decision === 'approve' &&
+                !decision.stale &&
+                (decision.targetId ?? item.targetId) === targetId
+            )
+        }).length
+    }
+
+    function latestDecision(
+        nextSnapshot: DashboardSnapshot | undefined,
+        proposalId: string,
+        itemId: string,
+    ): DashboardSnapshot['decisions'][number] | undefined {
+        return nextSnapshot?.decisions
+            .filter((decision) => decision.proposalId === proposalId && decision.itemId === itemId)
+            .sort((left, right) => {
+                const timeOrder = left.decidedAt.localeCompare(right.decidedAt)
+                return timeOrder === 0 ? left.id.localeCompare(right.id) : timeOrder
+            })
+            .at(-1)
     }
 
     function createPatchPreviewHint(
@@ -615,6 +635,17 @@
                             </label>
                         {/if}
                         {#if pendingProposalItem}
+                            {#if reviewableProposalItems.length > 1}
+                                <label>
+                                    Proposal item
+                                    <select bind:value={selectedDecisionItemId}>
+                                        <option value="">Next undecided item</option>
+                                        {#each reviewableProposalItems as item}
+                                            <option value={item.id}>{item.classification}: {item.ruleText}</option>
+                                        {/each}
+                                    </select>
+                                </label>
+                            {/if}
                             <h3>{pendingProposalItem.ruleText}</h3>
                             <p class="muted">{pendingProposalItem.rationale}</p>
                             <label>
@@ -626,13 +657,17 @@
                                 <textarea bind:value={decisionRationale} rows="4" placeholder="Why this decision is correct"></textarea>
                             </label>
                             <div class="button-row">
-                                <button type="button" disabled={busy || !canRecordDecision} on:click={() => recordDecision('approve')}>
+                                <button
+                                    type="button"
+                                    disabled={busy || !canRecordDecision || !decisionActor.trim() || !decisionRationale.trim()}
+                                    on:click={() => recordDecision('approve')}
+                                >
                                     Approve
                                 </button>
                                 <button
                                     type="button"
                                     class="secondary"
-                                    disabled={busy || !canRecordDecision}
+                                    disabled={busy || !canRecordDecision || !decisionActor.trim() || !decisionRationale.trim()}
                                     on:click={() => recordDecision('reject')}
                                 >
                                     Reject
@@ -640,13 +675,13 @@
                                 <button
                                     type="button"
                                     class="secondary"
-                                    disabled={busy || !canRecordDecision}
+                                    disabled={busy || !canRecordDecision || !decisionActor.trim() || !decisionRationale.trim()}
                                     on:click={() => recordDecision('defer')}
                                 >
                                     Defer
                                 </button>
                             </div>
-                            <p class="form-hint">Blank fields use dashboard defaults; custom actor and rationale are preserved.</p>
+                            <p class="form-hint">Enter an accountable actor and rationale before recording this decision. Select any item to revise a prior decision.</p>
                         {:else}
                             <h3>No pending proposal item</h3>
                             <p class="muted">Create a proposal or select one with undecided items.</p>
