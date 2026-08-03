@@ -77,6 +77,28 @@ export class SqliteLearningStore implements LearningStore {
         this.put('cluster', cluster.id, cluster.repositoryId, cluster)
     }
 
+    async replaceImportedSnapshot(repositoryId: string, learnings: Learning[], evidence: Evidence[]): Promise<void> {
+        for (const learning of learnings) {
+            learningSchema.parse(learning)
+        }
+        for (const item of evidence) {
+            evidenceSchema.parse(item)
+        }
+
+        this.replaceKinds(repositoryId, [
+            { kind: 'learning', values: learnings },
+            { kind: 'evidence', values: evidence },
+        ])
+    }
+
+    async replaceClusters(repositoryId: string, clusters: LearningCluster[]): Promise<void> {
+        for (const cluster of clusters) {
+            clusterSchema.parse(cluster)
+        }
+
+        this.replaceKinds(repositoryId, [{ kind: 'cluster', values: clusters }])
+    }
+
     async putProposal(proposal: Proposal): Promise<void> {
         proposalSchema.parse(proposal)
         this.put('proposal', proposal.id, proposal.repositoryId, proposal)
@@ -135,6 +157,10 @@ export class SqliteLearningStore implements LearningStore {
 
     private put(kind: RecordKind, id: string, repositoryId: string, value: unknown): void {
         const db = this.requireDb()
+        this.putWithDb(db, kind, id, repositoryId, value)
+    }
+
+    private putWithDb(db: DatabaseSync, kind: RecordKind, id: string, repositoryId: string, value: unknown): void {
         db.prepare(
             `
             INSERT INTO records(kind, id, repository_id, schema_version, json)
@@ -142,9 +168,32 @@ export class SqliteLearningStore implements LearningStore {
             ON CONFLICT(kind, id) DO UPDATE SET
                 repository_id = excluded.repository_id,
                 json = excluded.json,
-                updated_at = CURRENT_TIMESTAMP
+            updated_at = CURRENT_TIMESTAMP
         `,
         ).run(kind, id, repositoryId, JSON.stringify(value))
+    }
+
+    private replaceKinds(repositoryId: string, replacements: Array<{ kind: RecordKind; values: unknown[] }>): void {
+        const db = this.requireDb()
+        db.exec('BEGIN IMMEDIATE')
+        try {
+            const deleteStatement = db.prepare('DELETE FROM records WHERE repository_id = ? AND kind = ?')
+            for (const replacement of replacements) {
+                deleteStatement.run(repositoryId, replacement.kind)
+            }
+
+            for (const replacement of replacements) {
+                for (const value of replacement.values) {
+                    const id = readRecordId(value)
+                    this.putWithDb(db, replacement.kind, id, repositoryId, value)
+                }
+            }
+
+            db.exec('COMMIT')
+        } catch (error) {
+            db.exec('ROLLBACK')
+            throw error
+        }
     }
 
     private list<T>(kind: RecordKind, repositoryId: string, parse: (value: unknown) => T): T[] {
@@ -172,4 +221,12 @@ export class SqliteLearningStore implements LearningStore {
 
         return this.db
     }
+}
+
+function readRecordId(value: unknown): string {
+    if (typeof value === 'object' && value !== null && 'id' in value && typeof value.id === 'string') {
+        return value.id
+    }
+
+    throw new Error('Replacement records must contain a string id.')
 }

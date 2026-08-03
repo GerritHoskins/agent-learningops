@@ -18,7 +18,7 @@ export function toRuleText(text: string): string {
         .trim()
         .replace(/[.。]+$/, '')
 
-    if (/^(when|if|treat|keep|use|verify|check|preserve|avoid|run|write|record|reject|require)\b/i.test(cleaned)) {
+    if (/^(when|if|treat|keep|use|verify|validate|check|preserve|avoid|run|write|record|reject|require)\b/i.test(cleaned)) {
         return cleaned
     }
 

@@ -166,8 +166,11 @@ function parseCapabilities(value: string): Array<'read' | 'workflow' | 'capture'
 
 function summarizeImport(result: Awaited<ReturnType<typeof importMarkdown>>) {
     return {
+        scannedCount: result.scannedCount,
         learningCount: result.learnings.length,
         evidenceCount: result.evidence.length,
+        skippedCount: result.skippedCount,
+        duplicateCount: result.duplicateCount,
         warningCount: result.warningCount,
     }
 }

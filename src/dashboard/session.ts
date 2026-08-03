@@ -258,7 +258,7 @@ class LearningOpsDashboardSession implements DashboardSession {
                 patchPreviews: patches.length,
                 auditEvents: auditEvents.length,
             },
-            classificationCounts: countClassifications(proposals),
+            classificationCounts: countClassifications(orderedProposals[0]),
             ...(orderedProposals[0] ? { latestProposalId: orderedProposals[0].id } : {}),
             ...(orderedEvents[0] ? { latestAuditEvent: orderedEvents[0] } : {}),
         }
@@ -408,16 +408,14 @@ function summarizeRepository(app: LearningOpsApp): DashboardRepositorySummary {
     }
 }
 
-function countClassifications(proposals: Proposal[]): Record<ProposalItem['classification'], number> {
-    return proposals
-        .flatMap((proposal) => proposal.items)
-        .reduce<Record<ProposalItem['classification'], number>>(
-            (counts, item) => ({
-                ...counts,
-                [item.classification]: counts[item.classification] + 1,
-            }),
-            { PROMOTE: 0, NEEDS_VERIFICATION: 0, SKIP: 0 },
-        )
+function countClassifications(proposal: Proposal | undefined): Record<ProposalItem['classification'], number> {
+    const counts: Record<ProposalItem['classification'], number> = { PROMOTE: 0, NEEDS_VERIFICATION: 0, SKIP: 0 }
+
+    for (const item of proposal?.items ?? []) {
+        counts[item.classification] += 1
+    }
+
+    return counts
 }
 
 function orderProposals(proposals: Proposal[]): Proposal[] {

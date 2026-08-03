@@ -6,11 +6,13 @@ import {
     proposeLearnings,
     recordProposalDecision,
 } from '../src/app.js'
+import { buildDeterministicClusters } from '../src/clustering/deterministic-clusterer.js'
+import { contentId, fileHash } from '../src/domain/ids.js'
 import { importLearningMarkdown } from '../src/importers/learning-markdown.js'
 import { readVerifiedRepositoryFile } from '../src/policies/repository-file.js'
 import { readTargetContent } from '../src/policies/target-registry.js'
 import { createFixtureRepo } from './helpers/tmp.js'
-import { mkdir, mkdtemp, readFile, stat, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -54,6 +56,32 @@ describe('LearningOps application flow', () => {
 
             expect(patch.unifiedDiff).toContain('Verify target hashes before patch preview')
             expect(await readFile(targetPath, 'utf8')).toBe(before)
+        } finally {
+            await app.close()
+            delete process.env.LEARNINGOPS_STATE_DIR
+        }
+    })
+
+    it('replaces imported learning/evidence and rebuilt clusters on full refreshes', async () => {
+        const root = await createFixtureRepo()
+        process.env.LEARNINGOPS_STATE_DIR = join(root, '.state-replace')
+        const app = await createLearningOpsApp(root)
+
+        try {
+            await importMarkdown(app)
+            await clusterLearnings(app)
+            expect(await app.store.listLearnings('fixture')).toHaveLength(2)
+            expect(await app.store.listEvidence('fixture')).toHaveLength(2)
+            expect(await app.store.listClusters('fixture')).toHaveLength(1)
+
+            await rm(join(root, '.ms-artifacts', 'learnings', 'second.md'))
+            const refreshed = await importMarkdown(app)
+            await clusterLearnings(app)
+
+            expect(refreshed.learnings).toHaveLength(1)
+            expect(await app.store.listLearnings('fixture')).toHaveLength(1)
+            expect(await app.store.listEvidence('fixture')).toHaveLength(1)
+            expect(await app.store.listClusters('fixture')).toHaveLength(1)
         } finally {
             await app.close()
             delete process.env.LEARNINGOPS_STATE_DIR
@@ -275,8 +303,108 @@ describe('learning markdown importer boundaries', () => {
         })
 
         expect(result.learnings).toHaveLength(1)
+        expect(result.scannedCount).toBe(1)
+        expect(result.skippedCount).toBe(0)
         expect(result.learnings[0]?.sourcePath).toBe('learning-artifacts/nested/valid.md')
         expect(result.evidence[0]?.rawFragment).toBe('Verify target hashes before patch preview')
+    })
+
+    it('reports and skips empty learning files instead of importing placeholder rows', async () => {
+        const root = await createMinimalLearningRepo()
+        await writeFile(join(root, 'learning-artifacts', 'nested', 'empty.md'), '')
+
+        const result = await importLearningMarkdown(root, {
+            schemaVersion: 1,
+            repositoryId: 'fixture',
+            learningGlobs: ['learning-artifacts/nested/*.md'],
+            proposalGlobs: [],
+            receiptGlobs: [],
+            targets: [],
+        })
+
+        expect(result.scannedCount).toBe(2)
+        expect(result.learnings).toHaveLength(1)
+        expect(result.evidence).toHaveLength(1)
+        expect(result.skippedCount).toBe(1)
+        expect(result.warningCount).toBeGreaterThanOrEqual(1)
+    })
+
+    it('extracts rule and convention labels without importing rationale or evidence metadata as rules', async () => {
+        const root = await createMinimalLearningRepo()
+        await writeFile(
+            join(root, 'learning-artifacts', 'nested', 'valid.md'),
+            [
+                '# Structured',
+                '',
+                'Skill: local-review',
+                'Date: 2026-08-03',
+                '',
+                'Rule: Validate persisted structured values after JSON parsing before trusting their TypeScript type.',
+                'Rationale: Valid JSON can still have the wrong runtime shape.',
+                'Scope: VueUse storage.',
+                '',
+                '- Convention: Persisted location state must recover from invalid runtime shapes before entering view logic.',
+                '- Evidence: modules/gas-stations/src/GasStationsListView.vue:143',
+            ].join('\n'),
+        )
+
+        const result = await importLearningMarkdown(root, {
+            schemaVersion: 1,
+            repositoryId: 'fixture',
+            learningGlobs: ['learning-artifacts/nested/*.md'],
+            proposalGlobs: [],
+            receiptGlobs: [],
+            targets: [],
+        })
+
+        expect(result.evidence.map((item) => item.rawFragment)).toEqual([
+            'Validate persisted structured values after JSON parsing before trusting their TypeScript type',
+            'Use persisted location state must recover from invalid runtime shapes before entering view logic',
+        ])
+    })
+
+    it('keeps identical file content source-scoped so independent evidence can promote', async () => {
+        const root = await createMinimalLearningRepo()
+        const duplicated = [
+            '# Duplicated',
+            '',
+            'Skill: local-plan',
+            'Date: 2026-08-03',
+            '',
+            '- Verify target hashes before patch preview.',
+        ].join('\n')
+        await writeFile(join(root, 'learning-artifacts', 'nested', 'valid.md'), duplicated)
+        await writeFile(join(root, 'learning-artifacts', 'nested', 'copy.md'), duplicated)
+
+        const result = await importLearningMarkdown(root, {
+            schemaVersion: 1,
+            repositoryId: 'fixture',
+            learningGlobs: ['learning-artifacts/nested/*.md'],
+            proposalGlobs: [],
+            receiptGlobs: [],
+            targets: [],
+        })
+
+        expect(result.scannedCount).toBe(2)
+        expect(result.learnings).toHaveLength(2)
+        expect(result.evidence).toHaveLength(2)
+        expect(new Set(result.evidence.map((item) => item.canonicalLineageId)).size).toBe(2)
+    })
+})
+
+describe('learning clusterer', () => {
+    it('groups near-duplicate actionable fragments while keeping unrelated evidence separate', () => {
+        const evidence = [
+            evidenceFixture('one', 'Revert Capacitor native config drift before committing generated files.'),
+            evidenceFixture('two', 'Revert Capacitor config drift before committing native generated files.'),
+            evidenceFixture('three', 'Verify target hashes before patch preview.'),
+        ]
+
+        const result = buildDeterministicClusters('fixture', evidence, '2026-08-03T00:00:00.000Z')
+
+        expect(result.clusters).toHaveLength(2)
+        expect(result.clusters.some((cluster) => cluster.members.length === 2 && cluster.needsReview)).toBe(true)
+        expect(result.clusters.some((cluster) => cluster.members.length === 1 && cluster.needsReview)).toBe(true)
     })
 })
 
@@ -336,4 +464,16 @@ async function createMinimalLearningRepo(): Promise<string> {
         ].join('\n'),
     )
     return root
+}
+
+function evidenceFixture(id: string, rawFragment: string) {
+    return {
+        id: contentId('evidence', { id }),
+        learningId: contentId('learning', { id }),
+        repositoryId: 'fixture',
+        sourcePath: `learning-artifacts/${id}.md`,
+        sourceHash: fileHash(rawFragment),
+        canonicalLineageId: contentId('lineage', { id }),
+        rawFragment,
+    }
 }

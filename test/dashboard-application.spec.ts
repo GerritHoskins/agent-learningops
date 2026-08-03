@@ -1,5 +1,6 @@
 import {
     createDashboardSession,
+    createLearningOpsApp,
     createLearningOpsDesktopApplication,
     validateRepositorySelection,
 } from '../src/index.js'
@@ -157,6 +158,73 @@ describe('dashboard session query models', () => {
             expect(diagnostics.auditEvents.map((event) => event.type)).toContain('import-markdown')
         } finally {
             await session.close()
+        }
+    })
+
+    it('reports classification counts for the latest proposal only', async () => {
+        const root = await createFixtureRepo()
+        process.env.LEARNINGOPS_STATE_DIR = await mkdtemp(join(tmpdir(), 'learningops-dashboard-latest-proposal-state-'))
+        const app = await createLearningOpsApp(root)
+
+        try {
+            await app.store.putProposal({
+                schemaVersion: 1,
+                id: 'proposal_older',
+                repositoryId: 'fixture',
+                baselineId: 'baseline_older',
+                version: 1,
+                createdAt: '2026-08-02T00:00:00.000Z',
+                guardrail: 'fixture',
+                items: [
+                    {
+                        id: 'item_older',
+                        clusterId: 'cluster_older',
+                        classification: 'SKIP',
+                        ruleText: 'maybe check this later',
+                        targetId: 'skill-local-standards',
+                        evidenceIds: [],
+                        distinctEvidenceCount: 0,
+                        rationale: 'old aggregate should not leak into the chart',
+                        risks: [],
+                        classifierVersion: 'test',
+                    },
+                ],
+            })
+            await app.store.putProposal({
+                schemaVersion: 1,
+                id: 'proposal_latest',
+                repositoryId: 'fixture',
+                baselineId: 'baseline_latest',
+                version: 1,
+                createdAt: '2026-08-03T00:00:00.000Z',
+                guardrail: 'fixture',
+                items: [
+                    {
+                        id: 'item_latest',
+                        clusterId: 'cluster_latest',
+                        classification: 'PROMOTE',
+                        ruleText: 'Verify target hashes before patch preview.',
+                        targetId: 'skill-local-standards',
+                        evidenceIds: [],
+                        distinctEvidenceCount: 2,
+                        rationale: 'latest proposal should drive the chart',
+                        risks: [],
+                        classifierVersion: 'test',
+                    },
+                ],
+            })
+        } finally {
+            await app.close()
+        }
+
+        const session = await createDashboardSession({ repositoryRoot: root })
+        try {
+            const overview = await session.getOverview()
+            expect(overview.latestProposalId).toBe('proposal_latest')
+            expect(overview.classificationCounts).toEqual({ PROMOTE: 1, NEEDS_VERIFICATION: 0, SKIP: 0 })
+        } finally {
+            await session.close()
+            delete process.env.LEARNINGOPS_STATE_DIR
         }
     })
 })

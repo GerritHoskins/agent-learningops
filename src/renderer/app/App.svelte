@@ -28,6 +28,7 @@
     let importSkill = ''
     let importSince = ''
     let learningFilter = ''
+    let clusterFilter = ''
     let learningSortBy: 'skill' | 'ticket' | 'warnings' = 'skill'
     let decisionActor = ''
     let decisionRationale = ''
@@ -40,8 +41,11 @@
     let error = ''
     let chartElement: HTMLDivElement | undefined
     let chart: import('echarts').ECharts | undefined
+    let initChart: typeof import('echarts').init | undefined
 
     $: metrics = snapshot ? createMetricCards(snapshot) : []
+    $: filteredClusters = snapshot ? filterClusters(snapshot.clusters, clusterFilter) : []
+    $: visibleClusters = filteredClusters.slice(0, 50)
     $: activeViewLabel = views.find((view) => view.id === activeView)?.label ?? 'Dashboard'
     $: learningSorting = createLearningSorting(learningSortBy)
     $: tables = snapshot
@@ -60,27 +64,26 @@
             !hasDecision(snapshot, activeProposal.id, item.id),
     )
     $: canRecordDecision = Boolean(decisionActor.trim() && decisionRationale.trim())
+    $: approvedPatchItemCount = countApprovedPatchItems(snapshot, activeProposal, selectedTargetId)
+    $: canPreviewPatch = Boolean(selectedProposalId && selectedTargetId && approvedPatchItemCount > 0)
+    $: patchPreviewHint = createPatchPreviewHint(snapshot, activeProposal, selectedTargetId, approvedPatchItemCount)
+    $: latestImportSummary = summarizeLatestImport(snapshot)
     $: if (snapshot && !selectedProposalId) {
         selectedProposalId = snapshot.proposals[0]?.id ?? ''
     }
     $: if (availableTargets.length > 0 && !selectedTargetId) {
         selectedTargetId = availableTargets[0]?.id ?? ''
     }
-    $: if (snapshot && chart) {
-        chart.setOption(createClassificationChartOption(snapshot))
-    }
+    $: syncClassificationChart(chartElement, snapshot, initChart)
 
     onMount(() => {
         let disposed = false
         void import('echarts').then((module) => {
-            if (disposed || !chartElement) {
+            if (disposed) {
                 return
             }
 
-            chart = module.init(chartElement)
-            if (snapshot) {
-                chart.setOption(createClassificationChartOption(snapshot))
-            }
+            initChart = module.init
         })
         const onResize = () => chart?.resize()
         window.addEventListener('resize', onResize)
@@ -175,7 +178,8 @@
     }
 
     async function previewPatch() {
-        if (!selectedProposalId || !selectedTargetId) {
+        if (!canPreviewPatch) {
+            error = patchPreviewHint
             return
         }
         await runAction('Previewing patch', async () => {
@@ -208,8 +212,13 @@
         snapshot = nextSnapshot
         status = nextStatus
         if (nextView) {
-            activeView = nextView
+            selectView(nextView)
         }
+    }
+
+    function selectView(view: DashboardView) {
+        activeView = view
+        error = ''
     }
 
     async function runAction(label: string, action: () => Promise<void>) {
@@ -234,6 +243,97 @@
         return Boolean(
             nextSnapshot?.decisions.some((decision) => decision.proposalId === proposalId && decision.itemId === itemId),
         )
+    }
+
+    function countApprovedPatchItems(
+        nextSnapshot: DashboardSnapshot | undefined,
+        proposal: Proposal | undefined,
+        targetId: string,
+    ): number {
+        if (!nextSnapshot || !proposal || !targetId) {
+            return 0
+        }
+
+        return proposal.items.filter((item) =>
+            nextSnapshot.decisions.some(
+                (decision) =>
+                    decision.proposalId === proposal.id &&
+                    decision.itemId === item.id &&
+                    decision.decision === 'approve' &&
+                    !decision.stale &&
+                    (decision.targetId ?? item.targetId) === targetId,
+            ),
+        ).length
+    }
+
+    function createPatchPreviewHint(
+        nextSnapshot: DashboardSnapshot | undefined,
+        proposal: Proposal | undefined,
+        targetId: string,
+        approvedCount: number,
+    ): string {
+        if (!nextSnapshot || !proposal) {
+            return 'Create a proposal before previewing a patch.'
+        }
+
+        if (!targetId) {
+            return 'Select a target before previewing a patch.'
+        }
+
+        if (approvedCount === 0) {
+            return 'Approve at least one non-stale proposal item for this target before previewing a patch.'
+        }
+
+        return `${approvedCount} approved item(s) ready for patch preview.`
+    }
+
+    function summarizeLatestImport(nextSnapshot: DashboardSnapshot | undefined): string {
+        const event = nextSnapshot?.auditEvents.find((candidate) => candidate.type === 'import-markdown')
+        if (!event) {
+            return ''
+        }
+
+        const scanned = Number(event.data.scannedCount ?? 0)
+        const imported = Number(event.data.learningCount ?? 0)
+        const skipped = Number(event.data.skippedCount ?? 0)
+        const duplicates = Number(event.data.duplicateCount ?? 0)
+        const warnings = Number(event.data.warningCount ?? 0)
+
+        return `Scanned ${scanned}, imported ${imported}, skipped ${skipped}, duplicates ${duplicates}, warnings ${warnings}.`
+    }
+
+    function filterClusters(clusters: DashboardSnapshot['clusters'], filter: string): DashboardSnapshot['clusters'] {
+        const normalizedFilter = filter.trim().toLowerCase()
+        if (!normalizedFilter) {
+            return clusters
+        }
+
+        return clusters.filter(
+            (cluster) =>
+                cluster.representativeText.toLowerCase().includes(normalizedFilter) ||
+                cluster.explanation.toLowerCase().includes(normalizedFilter),
+        )
+    }
+
+    function syncClassificationChart(
+        element: HTMLDivElement | undefined,
+        nextSnapshot: DashboardSnapshot | undefined,
+        init: typeof import('echarts').init | undefined,
+    ): void {
+        if (!init) {
+            return
+        }
+
+        if (!element) {
+            chart?.dispose()
+            chart = undefined
+            return
+        }
+
+        chart ??= init(element)
+        if (nextSnapshot) {
+            chart.setOption(createClassificationChartOption(nextSnapshot))
+        }
     }
 
     function createLearningSorting(sortBy: typeof learningSortBy): SortingState {
@@ -270,7 +370,7 @@
 
         <nav class="nav-list" aria-label="Dashboard sections">
             {#each views as view}
-                <button class:active={activeView === view.id} type="button" on:click={() => (activeView = view.id)}>
+                <button class:active={activeView === view.id} type="button" on:click={() => selectView(view.id)}>
                     {view.label}
                 </button>
             {/each}
@@ -378,6 +478,9 @@
                                 </select>
                             </label>
                         </div>
+                        {#if latestImportSummary}
+                            <p class="form-hint">{latestImportSummary}</p>
+                        {/if}
                         {#if tables && tables.learningRows.length > 0}
                             <table>
                                 <thead>
@@ -422,8 +525,15 @@
                         </div>
                         <button type="button" disabled={busy} on:click={clusterLearnings}>Cluster</button>
                     </div>
+                    <div class="filters">
+                        <label>
+                            Filter clusters
+                            <input bind:value={clusterFilter} placeholder="modal, storage, testing" />
+                        </label>
+                    </div>
+                    <p class="form-hint">Showing {visibleClusters.length} of {filteredClusters.length} cluster(s).</p>
                     <div class="list-grid">
-                        {#each snapshot.clusters as cluster}
+                        {#each visibleClusters as cluster}
                             <article class="item-card">
                                 <strong>{cluster.representativeText}</strong>
                                 <small>{cluster.members.length} evidence item(s)</small>
@@ -560,7 +670,7 @@
                             <p class="eyebrow">Apply planning</p>
                             <h3>Patch previews</h3>
                         </div>
-                        <button type="button" disabled={busy || !selectedProposalId || !selectedTargetId} on:click={previewPatch}>
+                        <button type="button" disabled={busy || !canPreviewPatch} on:click={previewPatch}>
                             Preview
                         </button>
                     </div>
@@ -582,6 +692,7 @@
                             </select>
                         </label>
                     </div>
+                    <p class="form-hint">{patchPreviewHint}</p>
                     <div class="diff-list">
                         {#each snapshot.patchPreviews as patch}
                             <article class="diff-card">

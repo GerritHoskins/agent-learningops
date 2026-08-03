@@ -49,22 +49,32 @@ export async function initApp(app: LearningOpsApp): Promise<{ repositoryId: stri
 export async function importMarkdown(app: LearningOpsApp, options: { since?: string; skill?: string } = {}) {
     const result = await importLearningMarkdown(app.repositoryRoot, app.config, options)
     const eventAt = new Date().toISOString()
-    for (const learning of result.learnings) {
-        await app.store.putLearning(learning)
+
+    if (isFullImport(options)) {
+        await app.store.replaceImportedSnapshot(app.config.repositoryId, result.learnings, result.evidence)
+    } else {
+        for (const learning of result.learnings) {
+            await app.store.putLearning(learning)
+        }
+        for (const evidence of result.evidence) {
+            await app.store.putEvidence(evidence)
+        }
     }
-    for (const evidence of result.evidence) {
-        await app.store.putEvidence(evidence)
-    }
+
     await app.store.appendEvent({
         schemaVersion: 1,
-        id: contentId('event', { type: 'import', at: eventAt, count: result.learnings.length }),
+        id: contentId('event', { type: 'import', at: eventAt, count: result.learnings.length, options }),
         repositoryId: app.config.repositoryId,
         type: 'import-markdown',
         subjectId: app.config.repositoryId,
         at: eventAt,
         data: {
+            mode: isFullImport(options) ? 'replace' : 'incremental',
+            scannedCount: result.scannedCount,
             learningCount: result.learnings.length,
             evidenceCount: result.evidence.length,
+            skippedCount: result.skippedCount,
+            duplicateCount: result.duplicateCount,
             warningCount: result.warningCount,
         },
     })
@@ -74,9 +84,7 @@ export async function importMarkdown(app: LearningOpsApp, options: { since?: str
 export async function clusterLearnings(app: LearningOpsApp) {
     const evidence = await app.store.listEvidence(app.config.repositoryId)
     const result = buildDeterministicClusters(app.config.repositoryId, evidence)
-    for (const cluster of result.clusters) {
-        await app.store.putCluster(cluster)
-    }
+    await app.store.replaceClusters(app.config.repositoryId, result.clusters)
     return result
 }
 
@@ -112,6 +120,10 @@ export async function proposeLearnings(app: LearningOpsApp): Promise<Proposal> {
 
     await app.store.putProposal(proposalWithTargetHashes)
     return proposalWithTargetHashes
+}
+
+function isFullImport(options: { since?: string; skill?: string }): boolean {
+    return !options.since && !options.skill
 }
 
 export async function recordProposalDecision(

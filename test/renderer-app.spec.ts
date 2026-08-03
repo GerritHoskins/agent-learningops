@@ -2,6 +2,7 @@
 
 import '@testing-library/jest-dom/vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte'
+import { init as initChart } from 'echarts'
 import type { LearningOpsRendererApi } from '../src/electron/ipc-contract.js'
 import type { DashboardSnapshot } from '../src/index.js'
 import App from '../src/renderer/app/App.svelte'
@@ -56,6 +57,7 @@ describe('renderer dashboard app', () => {
             }),
         )
         expect(await screen.findByText('Learning inbox')).toBeInTheDocument()
+        await waitFor(() => expect(initChart).toHaveBeenCalled())
         expect(screen.getByText('local-plan')).toBeInTheDocument()
 
         await fireEvent.input(screen.getByLabelText('Filter table'), { target: { value: 'missing-skill' } })
@@ -91,20 +93,31 @@ describe('renderer dashboard app', () => {
         )
     })
 
-    it('previews patches for the selected second target', async () => {
+    it('previews patches for an approved selected target', async () => {
         render(App)
         await fireEvent.click(screen.getByRole('button', { name: 'Browse' }))
         await fireEvent.click(await screen.findByRole('button', { name: 'Patches' }))
 
-        await fireEvent.change(screen.getByLabelText('Target'), { target: { value: 'team-standards' } })
         await fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
 
         await waitFor(() =>
             expect(api.previewPatch).toHaveBeenCalledWith({
                 proposalId: 'proposal_1',
-                targetId: 'team-standards',
+                targetId: 'skill-local-standards',
             }),
         )
+    })
+
+    it('keeps patch preview disabled until the selected target has an approval', async () => {
+        render(App)
+        await fireEvent.click(screen.getByRole('button', { name: 'Browse' }))
+        await fireEvent.click(await screen.findByRole('button', { name: 'Patches' }))
+
+        await fireEvent.change(screen.getByLabelText('Target'), { target: { value: 'team-standards' } })
+
+        expect(screen.getByRole('button', { name: 'Preview' })).toBeDisabled()
+        expect(screen.getByText(/Approve at least one non-stale proposal item/)).toBeInTheDocument()
+        expect(api.previewPatch).not.toHaveBeenCalled()
     })
 
     it('exports markdown through the main-owned destination flow', async () => {

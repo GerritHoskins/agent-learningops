@@ -16,6 +16,8 @@ export interface LearningStore {
     putLearning(learning: Learning): Promise<void>
     putEvidence(evidence: Evidence): Promise<void>
     putCluster(cluster: LearningCluster): Promise<void>
+    replaceImportedSnapshot(repositoryId: string, learnings: Learning[], evidence: Evidence[]): Promise<void>
+    replaceClusters(repositoryId: string, clusters: LearningCluster[]): Promise<void>
     putProposal(proposal: Proposal): Promise<void>
     putDecision(decision: Decision): Promise<void>
     putPatch(patch: PatchManifest): Promise<void>

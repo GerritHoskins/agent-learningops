@@ -4,5 +4,6 @@ release/
 .cache/
 node_modules/
 .turbo/
+.omx/
 .DS_Store
 *.tsbuildinfo

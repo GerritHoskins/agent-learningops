@@ -10,7 +10,15 @@ import { assertInsideRepository, readVerifiedRepositoryFile } from '../policies/
 export interface ImportResult {
     learnings: Learning[]
     evidence: Evidence[]
+    scannedCount: number
+    skippedCount: number
+    duplicateCount: number
     warningCount: number
+}
+
+export interface ImportSkippedFile {
+    sourcePath: string
+    warnings: string[]
 }
 
 export async function importLearningMarkdown(
@@ -22,13 +30,23 @@ export async function importLearningMarkdown(
     const files = await resolveLearningFiles(repositoryRoot, config.learningGlobs)
     const learnings: Learning[] = []
     const evidence: Evidence[] = []
+    const skippedFiles: ImportSkippedFile[] = []
+    const seenLearningIds = new Set<string>()
+    let duplicateCount = 0
 
     for (const { sourcePath, rawText } of files) {
         const parsed = parseLearningFile(rawText)
+
+        if (parsed.candidateRules.length === 0) {
+            skippedFiles.push({ sourcePath, warnings: parsed.warnings })
+            continue
+        }
+
         const sourceHash = fileHash(rawText)
         const contentHash = fileHash(parsed.candidateRules.join('\n'))
         const learningId = contentId('learning', {
             repositoryId: config.repositoryId,
+            sourcePath,
             contentHash,
             sourceHash,
         })
@@ -40,6 +58,12 @@ export async function importLearningMarkdown(
         if (options.since && parsed.date && parsed.date < options.since) {
             continue
         }
+
+        if (seenLearningIds.has(learningId)) {
+            duplicateCount += 1
+            continue
+        }
+        seenLearningIds.add(learningId)
 
         const learning: Learning = {
             schemaVersion: 1,
@@ -64,6 +88,7 @@ export async function importLearningMarkdown(
                 id: contentId('evidence', {
                     repositoryId: config.repositoryId,
                     learningId,
+                    sourcePath,
                     index,
                     rawFragment,
                     sourceHash,
@@ -72,7 +97,7 @@ export async function importLearningMarkdown(
                 repositoryId: config.repositoryId,
                 sourcePath,
                 sourceHash,
-                canonicalLineageId: contentId('lineage', { repositoryId: config.repositoryId, sourceHash }),
+                canonicalLineageId: contentId('lineage', { repositoryId: config.repositoryId, sourcePath }),
                 skill: parsed.skill,
                 ticket: parsed.ticket,
                 date: parsed.date,
@@ -84,7 +109,12 @@ export async function importLearningMarkdown(
     return {
         learnings,
         evidence,
-        warningCount: learnings.reduce((sum, learning) => sum + learning.warnings.length, 0),
+        scannedCount: files.length,
+        skippedCount: skippedFiles.length,
+        duplicateCount,
+        warningCount:
+            learnings.reduce((sum, learning) => sum + learning.warnings.length, 0) +
+            skippedFiles.reduce((sum, file) => sum + file.warnings.length, 0),
     }
 }
 
@@ -112,9 +142,8 @@ export function parseLearningFile(rawText: string): {
     const candidateRules = rawText
         .split('\n')
         .map((line) => line.trim())
-        .filter((line) => /^[-*]\s+\S/.test(line))
-        .map((line) => line.replace(/^[-*]\s+/, '').trim())
-        .filter((line) => !/^(skill|ticket|date|files?|commands?):/i.test(line))
+        .map(extractCandidateRuleLine)
+        .filter((line): line is string => Boolean(line))
         .map(toRuleText)
         .filter((line, index, lines) => line.length > 8 && lines.indexOf(line) === index)
 
@@ -138,6 +167,32 @@ export function parseLearningFile(rawText: string): {
         candidateRules,
         warnings,
     }
+}
+
+function extractCandidateRuleLine(line: string): string | undefined {
+    const bullet = /^[-*]\s+\S/.test(line)
+    let text = stripMarkdownEmphasis(line.replace(/^[-*]\s+/, '').trim())
+    const labelledRule = /^(rule|convention):\s+\S/i.test(text)
+
+    if (!bullet && !labelledRule) {
+        return undefined
+    }
+
+    if (/^(skill|ticket|date|files?|commands?|rationale|scope|evidence|reference|source|issue|gap):/i.test(text)) {
+        return undefined
+    }
+
+    text = text.replace(/^(rule|convention|team consensus):\s*/i, '')
+    text = text
+        .replace(/\s+(?:Rationale|Scope|Evidence|Reference):.*$/i, '')
+        .replace(/\s+\/\s+(?:Rationale|Scope|Evidence|Reference):.*$/i, '')
+        .trim()
+
+    return text || undefined
+}
+
+function stripMarkdownEmphasis(value: string): string {
+    return value.replace(/\*\*/g, '').replace(/__+/g, '')
 }
 
 interface ResolvedLearningFile {
