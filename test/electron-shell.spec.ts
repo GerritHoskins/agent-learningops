@@ -32,6 +32,17 @@ describe('Electron shell security boundary', () => {
         expect(preload).not.toContain('...ipcRenderer')
     })
 
+    it('loads the sandbox-compatible CommonJS preload artifact', async () => {
+        const main = await readFile(new URL('../src/electron/main.ts', import.meta.url), 'utf8')
+        const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as {
+            scripts?: Record<string, string>
+        }
+
+        expect(main).toContain("join(currentDirectory, 'preload.cjs')")
+        expect(packageJson.scripts?.build).toContain('pnpm build:preload')
+        expect(packageJson.scripts?.['build:preload']).toContain('vite.preload.config.ts')
+    })
+
     it('ships packaged renderer content with a restrictive CSP', async () => {
         const html = await readFile(new URL('../src/renderer/index.html', import.meta.url), 'utf8')
 

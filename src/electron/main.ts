@@ -62,7 +62,7 @@ function registerIpcHandlers(application: LearningOpsDesktopApplication): void {
 }
 
 async function createMainWindow(): Promise<BrowserWindow> {
-    const window = new BrowserWindow(createMainWindowOptions(join(currentDirectory, 'preload.js')))
+    const window = new BrowserWindow(createMainWindowOptions(join(currentDirectory, 'preload.cjs')))
     mainWindow = window
     registerLearningOpsNavigationGuards(window.webContents, (url) =>
         isTrustedRendererUrl(url, {

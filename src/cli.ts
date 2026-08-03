@@ -11,6 +11,7 @@ import {
     recordProposalDecision,
 } from './app.js'
 import type { DecisionKind } from './domain/schemas.js'
+import { isDirectExecution } from './runtime/direct-execution.js'
 import { runMcpServer } from './server.js'
 
 interface ParsedArgs {
@@ -187,7 +188,7 @@ function usage(): string {
     ].join('\n')
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isDirectExecution(import.meta.url)) {
     main().catch((error: unknown) => {
         process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
         process.exitCode = 1

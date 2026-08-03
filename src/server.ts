@@ -1,6 +1,7 @@
 import type { Capability } from './domain/schemas.js'
 import { createLearningOpsMcpServer } from './mcp/create-server.js'
 import { logEvent } from './observability/logger.js'
+import { isDirectExecution } from './runtime/direct-execution.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 
 export async function runMcpServer(options: { repositoryRoot: string; capabilities: Capability[] }): Promise<void> {
@@ -29,7 +30,7 @@ function parseCapabilities(argv: string[]): Capability[] {
         )
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isDirectExecution(import.meta.url)) {
     runMcpServer({ repositoryRoot: process.cwd(), capabilities: parseCapabilities(process.argv.slice(2)) }).catch(
         (error: unknown) => {
             process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)

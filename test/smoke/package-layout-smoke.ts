@@ -29,7 +29,7 @@ configSchema.parse(JSON.parse(await readFile(join(root, 'agent-learningops.confi
 
 const builtFiles = [
     'dist/electron/main.js',
-    'dist/electron/preload.js',
+    'dist/electron/preload.cjs',
     'dist/electron/worker.js',
     'dist/renderer/index.html',
 ]
@@ -37,6 +37,7 @@ const builtFiles = [
 for (const file of builtFiles) {
     await assertReadable(join(root, file), `missing built file: ${file}`)
 }
+await assertSandboxCompatiblePreload(join(root, 'dist/electron/preload.cjs'))
 await assertLocalRendererAssets(join(root, 'dist/renderer/index.html'))
 
 const appRoot = await firstExisting([
@@ -49,9 +50,18 @@ if (appRoot) {
     for (const file of builtFiles) {
         await assertReadable(join(resourcesApp, file), `missing packaged file: ${file}`)
     }
+    await assertSandboxCompatiblePreload(join(resourcesApp, 'dist/electron/preload.cjs'))
     await assertLocalRendererAssets(join(resourcesApp, 'dist/renderer/index.html'))
     await assertReadable(join(resourcesApp, 'config.schema.json'), 'missing packaged config schema')
     await assertReadable(join(resourcesApp, 'agent-learningops.config.example.json'), 'missing packaged config example')
+}
+
+async function assertSandboxCompatiblePreload(preloadPath: string): Promise<void> {
+    const preload = await readFile(preloadPath, 'utf8')
+
+    assert(!/^\s*import\s/mu.test(preload), `${preloadPath} must not contain ESM imports`)
+    assert(/require\(["']electron["']\)/u.test(preload), `${preloadPath} must load Electron through CommonJS`)
+    assert(preload.includes('exposeInMainWorld'), `${preloadPath} must expose the typed renderer bridge`)
 }
 
 async function assertLocalRendererAssets(htmlPath: string): Promise<void> {

@@ -32,8 +32,9 @@
         "README.md"
     ],
     "scripts": {
-        "build": "pnpm clean:dist && pnpm build:core && pnpm build:renderer",
+        "build": "pnpm clean:dist && pnpm build:core && pnpm build:preload && pnpm build:renderer",
         "build:core": "tsc -p tsconfig.build.json",
+        "build:preload": "vite build --config vite.preload.config.ts",
         "build:renderer": "vite build",
         "clean:dist": "node --input-type=module --eval \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\"",
         "clean:package": "node --input-type=module --eval \"import { rmSync } from 'node:fs'; rmSync('release', { recursive: true, force: true })\"",
