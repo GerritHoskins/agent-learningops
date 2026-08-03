@@ -26,7 +26,7 @@ export interface LearningOpsApp {
 export async function createLearningOpsApp(repositoryRoot = process.cwd()): Promise<LearningOpsApp> {
     const resolvedRoot = await findRepositoryRoot(repositoryRoot)
     const config = await loadConfig(resolvedRoot)
-    const stateDirectory = resolveStateDirectory(resolvedRoot, config)
+    const stateDirectory = resolveStateDirectory(config)
     const store = new SqliteLearningStore(join(stateDirectory, 'learningops.sqlite'))
     await store.initialize()
 
@@ -41,7 +41,7 @@ export async function createLearningOpsApp(repositoryRoot = process.cwd()): Prom
 }
 
 export async function initApp(app: LearningOpsApp): Promise<{ repositoryId: string; state: string }> {
-    const stateDirectory = resolveStateDirectory(app.repositoryRoot, app.config)
+    const stateDirectory = resolveStateDirectory(app.config)
     await mkdir(stateDirectory, { recursive: true, mode: 0o700 })
     return { repositoryId: app.config.repositoryId, state: stateDirectory }
 }
@@ -173,7 +173,7 @@ export async function exportMarkdown(
 }
 
 export async function doctor(app: LearningOpsApp) {
-    const stateDirectory = resolveStateDirectory(app.repositoryRoot, app.config)
+    const stateDirectory = resolveStateDirectory(app.config)
     return {
         repositoryId: app.config.repositoryId,
         node: process.version,

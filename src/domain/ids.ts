@@ -16,10 +16,6 @@ export function fileHash(content: string): string {
     return sha256Hex(content)
 }
 
-export function repositoryIdFromRoot(root: string): string {
-    return contentId('repo', { root })
-}
-
 function sortForJson(value: unknown): unknown {
     if (Array.isArray(value)) {
         return value.map(sortForJson)

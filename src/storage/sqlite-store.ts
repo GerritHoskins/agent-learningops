@@ -36,7 +36,7 @@ export class SqliteLearningStore implements LearningStore {
 
     async initialize(): Promise<void> {
         await mkdir(dirname(this.databasePath), { recursive: true, mode: 0o700 })
-        await chmod(dirname(this.databasePath), 0o700).catch(() => undefined)
+        await chmod(dirname(this.databasePath), 0o700)
         this.db = new DatabaseSync(this.databasePath)
         this.db.exec('PRAGMA foreign_keys = ON')
         this.db.exec('PRAGMA busy_timeout = 2500')
@@ -54,7 +54,7 @@ export class SqliteLearningStore implements LearningStore {
             CREATE INDEX IF NOT EXISTS records_repository_kind_idx
                 ON records(repository_id, kind);
         `)
-        await chmod(this.databasePath, 0o600).catch(() => undefined)
+        await chmod(this.databasePath, 0o600)
     }
 
     async close(): Promise<void> {

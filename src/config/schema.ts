@@ -32,7 +32,18 @@ export async function loadConfig(
 }
 
 async function exists(path: string): Promise<boolean> {
-    return access(path)
-        .then(() => true)
-        .catch(() => false)
+    try {
+        await access(path)
+        return true
+    } catch (error) {
+        if (isMissingPathError(error)) {
+            return false
+        }
+
+        throw error
+    }
+}
+
+function isMissingPathError(error: unknown): boolean {
+    return error instanceof Error && 'code' in error && (error.code === 'ENOENT' || error.code === 'ENOTDIR')
 }
