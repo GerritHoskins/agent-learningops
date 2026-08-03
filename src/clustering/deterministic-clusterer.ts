@@ -58,7 +58,7 @@ export function buildDeterministicClusters(
                     .sort((left, right) => left.evidenceId.localeCompare(right.evidenceId)),
                 explanation: exactMatch
                     ? 'Exact normalized fingerprint match.'
-                    : 'Conservative token similarity grouped related learning fragments for reviewer confirmation.',
+                    : 'Near-duplicate token similarity grouped fragments for reviewer confirmation; this is not semantic clustering.',
                 needsReview: members.length === 1 || !exactMatch,
                 createdAt: now,
             } satisfies LearningCluster

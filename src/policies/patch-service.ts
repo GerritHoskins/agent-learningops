@@ -22,7 +22,6 @@ export async function previewPolicyPatch(input: {
         (item) =>
             item.targetId === target.id &&
             effectiveDecisionsByItemId.get(item.id)?.decision === 'approve' &&
-            !effectiveDecisionsByItemId.get(item.id)?.stale &&
             effectiveDecisionsByItemId.get(item.id)?.targetId === target.id,
     )
 
@@ -35,6 +34,12 @@ export async function previewPolicyPatch(input: {
         if (!decision?.targetBaseHash) {
             throw new Error(
                 `Approved proposal item ${item.id} has no target base hash for ${target.id}; re-approve before previewing.`,
+            )
+        }
+
+        if (decision.stale) {
+            throw new Error(
+                `Stale approval for proposal item ${item.id}: target ${target.id} changed; re-approve before previewing.`,
             )
         }
 

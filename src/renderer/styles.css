@@ -241,6 +241,8 @@ pre {
 }
 
 .repository-chip {
+    min-width: 0;
+    overflow: hidden;
     margin-top: auto;
     border: 1px solid rgba(145, 168, 191, 0.2);
     border-radius: 18px;
@@ -268,7 +270,9 @@ pre {
 .repository-chip code {
     font-size: 11px;
     margin: 6px 0;
+    max-width: 100%;
     overflow-wrap: anywhere;
+    white-space: normal;
 }
 
 .safety-stack,

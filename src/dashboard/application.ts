@@ -51,9 +51,17 @@ class LearningOpsDesktopApplicationController implements LearningOpsDesktopAppli
     }
 
     async switchRepository(input: DashboardRepositoryInput): Promise<DashboardSnapshot> {
-        await this.closeRepository()
-        this.session = await createDashboardSession(dashboardRepositoryInputSchema.parse(input))
-        return this.session.getSnapshot()
+        const nextSession = await createDashboardSession(dashboardRepositoryInputSchema.parse(input))
+        const previousSession = this.session
+        try {
+            await previousSession?.close()
+        } catch (error) {
+            await nextSession.close()
+            throw error
+        }
+
+        this.session = nextSession
+        return nextSession.getSnapshot()
     }
 
     async closeRepository(): Promise<void> {

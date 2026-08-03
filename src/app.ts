@@ -1,12 +1,12 @@
-import { mkdir, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { access, mkdir, writeFile } from 'node:fs/promises'
+import { dirname, join, resolve } from 'node:path'
 
 import { buildDeterministicClusters } from './clustering/deterministic-clusterer.js'
 import { findRepositoryRoot, loadConfig } from './config/schema.js'
 import { resolveStateDirectory } from './config/state-dir.js'
 import { recordDecision } from './decisions/decision-service.js'
 import { contentId, fileHash } from './domain/ids.js'
-import type { Capability, DecisionKind, Evidence, Learning, LearningOpsConfig, Proposal } from './domain/schemas.js'
+import type { Capability, Decision, DecisionKind, Evidence, Learning, LearningOpsConfig, Proposal } from './domain/schemas.js'
 import { exportProposalMarkdown } from './exporters/proposal-markdown.js'
 import { exportReceiptMarkdown } from './exporters/receipt-markdown.js'
 import { importLearningMarkdown } from './importers/learning-markdown.js'
@@ -48,6 +48,12 @@ export async function initApp(app: LearningOpsApp): Promise<{ repositoryId: stri
 
 export async function importMarkdown(app: LearningOpsApp, options: { since?: string; skill?: string } = {}) {
     const result = await importLearningMarkdown(app.repositoryRoot, app.config, options)
+    result.diagnostics.push(
+        ...(await missingConfiguredArtifactDirectories(app.repositoryRoot, [
+            ...app.config.proposalGlobs,
+            ...app.config.receiptGlobs,
+        ])),
+    )
     const eventAt = new Date().toISOString()
 
     if (isFullImport(options)) {
@@ -76,9 +82,24 @@ export async function importMarkdown(app: LearningOpsApp, options: { since?: str
             skippedCount: result.skippedCount,
             duplicateCount: result.duplicateCount,
             warningCount: result.warningCount,
+            diagnostics: result.diagnostics,
+            skippedFiles: result.skippedFiles,
         },
     })
     return result
+}
+
+async function missingConfiguredArtifactDirectories(repositoryRoot: string, globs: string[]): Promise<string[]> {
+    const diagnostics: string[] = []
+    for (const glob of globs) {
+        const directory = resolve(repositoryRoot, dirname(glob))
+        try {
+            await access(directory)
+        } catch {
+            diagnostics.push(`missing_configured_artifact_directory:${dirname(glob)}`)
+        }
+    }
+    return diagnostics
 }
 
 export async function submitLearning(
@@ -150,6 +171,7 @@ export async function clusterLearnings(app: LearningOpsApp) {
     const evidence = await app.store.listEvidence(app.config.repositoryId)
     const result = buildDeterministicClusters(app.config.repositoryId, evidence)
     await app.store.replaceClusters(app.config.repositoryId, result.clusters)
+    await appendWorkflowEvent(app, 'cluster', app.config.repositoryId, { clusterCount: result.clusters.length })
     return result
 }
 
@@ -184,6 +206,9 @@ export async function proposeLearnings(app: LearningOpsApp): Promise<Proposal> {
     }
 
     await app.store.putProposal(proposalWithTargetHashes)
+    await appendWorkflowEvent(app, 'proposal-create', proposalWithTargetHashes.id, {
+        itemCount: proposalWithTargetHashes.items.length,
+    })
     return proposalWithTargetHashes
 }
 
@@ -208,12 +233,17 @@ export async function recordProposalDecision(
         ...(target ? { targetBaseHash: fileHash(await readTargetContent(app.repositoryRoot, target)) } : {}),
     })
     await app.store.putDecision(decision)
+    await appendWorkflowEvent(app, 'decision', decision.itemId, {
+        proposalId: decision.proposalId,
+        decision: decision.decision,
+        actor: decision.actor,
+    })
     return decision
 }
 
 export async function previewPatch(app: LearningOpsApp, input: { proposalId: string; targetId: string }) {
     const proposal = await requireProposal(app, input.proposalId)
-    const decisions = await app.store.listDecisions(app.config.repositoryId)
+    const decisions = await listCurrentDecisions(app)
     const patch = await previewPolicyPatch({
         repositoryRoot: app.repositoryRoot,
         config: app.config,
@@ -222,7 +252,36 @@ export async function previewPatch(app: LearningOpsApp, input: { proposalId: str
         targetId: input.targetId,
     })
     await app.store.putPatch(patch)
+    await appendWorkflowEvent(app, 'patch-preview', input.targetId, { proposalId: input.proposalId, patchId: patch.id })
     return patch
+}
+
+export async function listCurrentDecisions(app: LearningOpsApp): Promise<Decision[]> {
+    const decisions = await app.store.listDecisions(app.config.repositoryId)
+    return Promise.all(
+        decisions.map(async (decision) => {
+            if (!decision.targetId || !decision.targetBaseHash) {
+                return decision
+            }
+
+            const target = app.config.targets.find((candidate) => candidate.id === decision.targetId)
+            if (!target) {
+                return { ...decision, stale: true }
+            }
+
+            let currentHash: string
+            try {
+                currentHash = fileHash(await readTargetContent(app.repositoryRoot, target))
+            } catch {
+                return { ...decision, stale: true }
+            }
+            const current = { ...decision, stale: currentHash !== decision.targetBaseHash }
+            if (current.stale !== decision.stale) {
+                await app.store.putDecision(current)
+            }
+            return current
+        }),
+    )
 }
 
 export async function exportMarkdown(
@@ -233,9 +292,23 @@ export async function exportMarkdown(
     const content =
         input.kind === 'proposal'
             ? exportProposalMarkdown(proposal, await app.store.listEvidence(app.config.repositoryId))
-            : exportReceiptMarkdown(proposal, await app.store.listDecisions(app.config.repositoryId))
+            : exportReceiptMarkdown(proposal, await listCurrentDecisions(app))
     await writeFile(input.output, content, { mode: 0o600 })
+    await appendWorkflowEvent(app, 'export', input.kind, { proposalId: input.proposalId, output: input.output })
     return { output: input.output, bytes: Buffer.byteLength(content) }
+}
+
+async function appendWorkflowEvent(app: LearningOpsApp, type: string, subjectId: string, data: Record<string, unknown>) {
+    const at = new Date().toISOString()
+    await app.store.appendEvent({
+        schemaVersion: 1,
+        id: contentId('event', { type, subjectId, at, data }),
+        repositoryId: app.config.repositoryId,
+        type,
+        subjectId,
+        at,
+        data,
+    })
 }
 
 export async function doctor(app: LearningOpsApp) {

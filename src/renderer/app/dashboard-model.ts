@@ -1,5 +1,6 @@
 import type { DashboardSnapshot } from '../../dashboard/session.js'
 import type { AuditEvent, ProposalItem } from '../../domain/schemas.js'
+import { normalizeLearningDate } from '../../domain/dates.js'
 import {
     createTable,
     getCoreRowModel,
@@ -180,9 +181,19 @@ export function createClassificationChartOption(snapshot: DashboardSnapshot): EC
                 type: 'pie',
                 radius: ['45%', '70%'],
                 avoidLabelOverlap: true,
+                label: {
+                    color: '#edf4f7',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    formatter: '{b}: {c}',
+                },
+                labelLine: {
+                    lineStyle: { color: '#9db0c1' },
+                },
                 data,
             },
         ],
+        textStyle: { color: '#edf4f7' },
     }
 }
 
@@ -220,7 +231,8 @@ function matchesLearningScope(learning: DashboardSnapshot['learnings'][number], 
     const skillFilter = state.learningSkillFilter?.trim().toLowerCase()
     const sinceFilter = state.learningSinceFilter?.trim()
     const matchesSkill = !skillFilter || (learning.skill ?? '').toLowerCase().includes(skillFilter)
-    const matchesSince = !sinceFilter || Boolean(learning.date && learning.date >= sinceFilter)
+    const matchesSince =
+        !sinceFilter || Boolean(learning.date && normalizeLearningDate(learning.date) >= normalizeLearningDate(sinceFilter))
 
     return matchesSkill && matchesSince
 }

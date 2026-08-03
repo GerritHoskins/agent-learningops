@@ -4,6 +4,7 @@ import {
     doctor,
     exportMarkdown,
     importMarkdown,
+    listCurrentDecisions,
     previewPatch,
     proposeLearnings,
     recordProposalDecision,
@@ -240,7 +241,7 @@ class LearningOpsDashboardSession implements DashboardSession {
             this.app.store.listEvidence(this.app.config.repositoryId),
             this.app.store.listClusters(this.app.config.repositoryId),
             this.app.store.listProposals(this.app.config.repositoryId),
-            this.app.store.listDecisions(this.app.config.repositoryId),
+            listCurrentDecisions(this.app),
             this.app.store.listPatches(this.app.config.repositoryId),
             this.listAuditEvents(),
         ])
@@ -305,7 +306,7 @@ class LearningOpsDashboardSession implements DashboardSession {
         const [proposals, evidence, decisions, patches] = await Promise.all([
             this.listProposals(),
             this.app.store.listEvidence(this.app.config.repositoryId),
-            this.app.store.listDecisions(this.app.config.repositoryId),
+            listCurrentDecisions(this.app),
             this.app.store.listPatches(this.app.config.repositoryId),
         ])
         const proposal = proposalId ? proposals.find((candidate) => candidate.id === proposalId) : proposals[0]
@@ -337,7 +338,7 @@ class LearningOpsDashboardSession implements DashboardSession {
 
     async listReceipts(): Promise<DashboardReceipt[]> {
         const [decisions, proposals, patches] = await Promise.all([
-            this.app.store.listDecisions(this.app.config.repositoryId),
+            listCurrentDecisions(this.app),
             this.listProposals(),
             this.app.store.listPatches(this.app.config.repositoryId),
         ])
@@ -372,7 +373,7 @@ class LearningOpsDashboardSession implements DashboardSession {
             this.getLearningInbox(),
             this.listClusters(),
             this.listProposals(),
-            this.app.store.listDecisions(this.app.config.repositoryId),
+            listCurrentDecisions(this.app),
             this.listPatchPreviews(),
             this.listAuditEvents(),
         ])

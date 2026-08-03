@@ -46,7 +46,7 @@
 
     $: metrics = snapshot ? createMetricCards(snapshot) : []
     $: filteredClusters = snapshot ? filterClusters(snapshot.clusters, clusterFilter) : []
-    $: visibleClusters = filteredClusters.slice(0, 50)
+    $: visibleClusters = filteredClusters
     $: activeViewLabel = views.find((view) => view.id === activeView)?.label ?? 'Dashboard'
     $: learningSorting = createLearningSorting(learningSortBy)
     $: tables = snapshot
@@ -69,8 +69,7 @@
     }
     $: pendingProposalItem =
         reviewableProposalItems.find((item) => item.id === selectedDecisionItemId) ??
-        reviewableProposalItems.find((item) => !hasDecision(snapshot, activeProposal?.id, item.id)) ??
-        reviewableProposalItems[0]
+        reviewableProposalItems.find((item) => !hasDecision(snapshot, activeProposal?.id, item.id))
     $: canRecordDecision = Boolean(pendingProposalItem)
     $: approvedPatchItemCount = countApprovedPatchItems(snapshot, activeProposal, selectedTargetId)
     $: canPreviewPatch = Boolean(selectedProposalId && selectedTargetId && approvedPatchItemCount > 0)
@@ -174,6 +173,12 @@
             error = 'Actor and rationale are required before recording a decision.'
             return
         }
+        const actor = decisionActor.trim() || (decision === 'defer' ? 'dashboard-user' : '')
+        const rationale = decisionRationale.trim() || (decision === 'defer' ? 'Deferred for later review.' : '')
+        if (!actor || !rationale) {
+            error = 'Actor and rationale are required before recording this decision.'
+            return
+        }
         const currentItemIndex = reviewableProposalItems.findIndex((item) => item.id === pendingProposalItem?.id)
         const nextItem = reviewableProposalItems[currentItemIndex + 1]
         await runAction('Recording decision', async () => {
@@ -181,8 +186,8 @@
                 proposalId: activeProposal.id,
                 itemId: pendingProposalItem.id,
                 decision,
-                actor: decisionActor.trim(),
-                rationale: decisionRationale.trim(),
+                actor,
+                rationale,
             })
             decisionRationale = ''
             selectedDecisionItemId = nextItem?.id ?? ''
@@ -324,8 +329,12 @@
         const skipped = Number(event.data.skippedCount ?? 0)
         const duplicates = Number(event.data.duplicateCount ?? 0)
         const warnings = Number(event.data.warningCount ?? 0)
-
-        return `Scanned ${scanned}, imported ${imported}, skipped ${skipped}, duplicates ${duplicates}, warnings ${warnings}.`
+        const diagnostics = Array.isArray(event.data.diagnostics) ? event.data.diagnostics : []
+        const skippedFiles = Array.isArray(event.data.skippedFiles) ? event.data.skippedFiles : []
+        const details = [...diagnostics, ...skippedFiles.map((file) => typeof file === 'object' && file ? String(file.sourcePath ?? '') : '')]
+            .filter(Boolean)
+            .slice(0, 3)
+        return `Scanned ${scanned}, imported ${imported}, skipped ${skipped}, duplicates ${duplicates}, warnings ${warnings}.${details.length ? ` Diagnostics: ${details.join(', ')}` : ''}`
     }
 
     function filterClusters(clusters: DashboardSnapshot['clusters'], filter: string): DashboardSnapshot['clusters'] {
@@ -560,13 +569,19 @@
                             <input bind:value={clusterFilter} placeholder="modal, storage, testing" />
                         </label>
                     </div>
-                    <p class="form-hint">Showing {visibleClusters.length} of {filteredClusters.length} cluster(s).</p>
+                    <p class="form-hint">Showing all {visibleClusters.length} near-duplicate group(s). Clustering is token-based, not semantic.</p>
                     <div class="list-grid">
                         {#each visibleClusters as cluster}
                             <article class="item-card">
                                 <strong>{cluster.representativeText}</strong>
                                 <small>{cluster.members.length} evidence item(s)</small>
-                                <p>{cluster.needsReview ? 'Needs review' : 'Ready'}</p>
+                                <p>{cluster.needsReview ? 'Needs review' : 'Ready'} · {cluster.explanation}</p>
+                                <ul>
+                                    {#each cluster.members as member}
+                                        {@const evidence = snapshot.evidence.find((item) => item.id === member.evidenceId)}
+                                        <li>{evidence?.sourcePath ?? member.evidenceId} · score {member.score} · {evidence?.rawFragment ?? member.normalizedText}</li>
+                                    {/each}
+                                </ul>
                             </article>
                         {:else}
                             <div class="empty-state compact">
@@ -634,20 +649,32 @@
                                 </select>
                             </label>
                         {/if}
+                        {#if reviewableProposalItems.length > 1}
+                            <label>
+                                Proposal item
+                                <select bind:value={selectedDecisionItemId}>
+                                    <option value="">Next undecided item</option>
+                                    {#each reviewableProposalItems as item}
+                                        <option value={item.id}>{item.classification}: {item.ruleText}</option>
+                                    {/each}
+                                </select>
+                            </label>
+                        {/if}
                         {#if pendingProposalItem}
-                            {#if reviewableProposalItems.length > 1}
-                                <label>
-                                    Proposal item
-                                    <select bind:value={selectedDecisionItemId}>
-                                        <option value="">Next undecided item</option>
-                                        {#each reviewableProposalItems as item}
-                                            <option value={item.id}>{item.classification}: {item.ruleText}</option>
-                                        {/each}
-                                    </select>
-                                </label>
-                            {/if}
                             <h3>{pendingProposalItem.ruleText}</h3>
-                            <p class="muted">{pendingProposalItem.rationale}</p>
+                            <p class="muted">Classification: {pendingProposalItem.classification} · {pendingProposalItem.rationale}</p>
+                            <p class="form-hint">Evidence: {pendingProposalItem.distinctEvidenceCount} distinct fragment(s) · Risks: {pendingProposalItem.risks.join(', ') || 'None recorded'}</p>
+                            <ul class="evidence-list">
+                                {#each pendingProposalItem.evidenceIds as evidenceId}
+                                    {@const evidence = snapshot.evidence.find((item) => item.id === evidenceId)}
+                                    {@const cluster = snapshot.clusters.find((candidate) => candidate.id === pendingProposalItem.clusterId)}
+                                    {@const member = cluster?.members.find((candidate) => candidate.evidenceId === evidenceId)}
+                                    <li>
+                                        <strong>{evidence?.sourcePath ?? evidenceId}</strong>
+                                        <span>{member ? `score ${member.score}` : 'score unavailable'} · {evidence?.rawFragment ?? 'Evidence unavailable'}</span>
+                                    </li>
+                                {/each}
+                            </ul>
                             <label>
                                 Actor
                                 <input bind:value={decisionActor} placeholder="gerrit" />
@@ -675,7 +702,7 @@
                                 <button
                                     type="button"
                                     class="secondary"
-                                    disabled={busy || !canRecordDecision || !decisionActor.trim() || !decisionRationale.trim()}
+                                    disabled={busy || !canRecordDecision}
                                     on:click={() => recordDecision('defer')}
                                 >
                                     Defer
@@ -764,6 +791,14 @@
                     </div>
                     <div class="filters">
                         <label>
+                            Proposal
+                            <select bind:value={selectedProposalId}>
+                                {#each snapshot.proposals as proposal}
+                                    <option value={proposal.id}>{proposal.id}</option>
+                                {/each}
+                            </select>
+                        </label>
+                        <label>
                             Kind
                             <select bind:value={exportKind}>
                                 <option value="proposal">Proposal</option>
@@ -772,7 +807,7 @@
                         </label>
                     </div>
                     <div class="list-grid">
-                        {#each snapshot.decisions as decision}
+                        {#each snapshot.decisions.filter((decision) => !selectedProposalId || decision.proposalId === selectedProposalId) as decision}
                             <article class="item-card">
                                 <strong>{decision.proposalId}</strong>
                                 <small>{decision.decision} by {decision.actor}</small>

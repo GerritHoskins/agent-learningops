@@ -85,9 +85,10 @@ describe('renderer dashboard app', () => {
 
         await fireEvent.change(screen.getByLabelText('Target'), { target: { value: 'team-standards' } })
 
-        for (const label of ['Approve', 'Reject', 'Defer']) {
+        for (const label of ['Approve', 'Reject']) {
             expect(screen.getByRole('button', { name: label })).toBeDisabled()
         }
+        expect(screen.getByRole('button', { name: 'Defer' })).toBeEnabled()
 
         await fireEvent.input(screen.getByLabelText('Actor'), { target: { value: 'dashboard-user' } })
         await fireEvent.input(screen.getByLabelText('Rationale'), {

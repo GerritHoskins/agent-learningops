@@ -3,6 +3,7 @@ import { lstat, readdir, realpath } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 
 import { toRuleText } from '../clustering/normalize.js'
+import { normalizeLearningDate } from '../domain/dates.js'
 import { contentId, fileHash } from '../domain/ids.js'
 import type { Evidence, Learning, LearningOpsConfig } from '../domain/schemas.js'
 import { assertInsideRepository, readVerifiedRepositoryFile } from '../policies/repository-file.js'
@@ -14,6 +15,8 @@ export interface ImportResult {
     skippedCount: number
     duplicateCount: number
     warningCount: number
+    skippedFiles: ImportSkippedFile[]
+    diagnostics: string[]
 }
 
 export interface ImportSkippedFile {
@@ -27,7 +30,8 @@ export async function importLearningMarkdown(
     options: { since?: string; skill?: string; now?: string } = {},
 ): Promise<ImportResult> {
     const now = options.now ?? new Date().toISOString()
-    const files = await resolveLearningFiles(repositoryRoot, config.learningGlobs)
+    const resolvedFiles = await resolveLearningFiles(repositoryRoot, config.learningGlobs)
+    const files = resolvedFiles.files
     const learnings: Learning[] = []
     const evidence: Evidence[] = []
     const skippedFiles: ImportSkippedFile[] = []
@@ -55,7 +59,7 @@ export async function importLearningMarkdown(
             continue
         }
 
-        if (options.since && parsed.date && parsed.date < options.since) {
+        if (options.since && parsed.date && normalizeLearningDate(parsed.date) < normalizeLearningDate(options.since)) {
             continue
         }
 
@@ -115,6 +119,8 @@ export async function importLearningMarkdown(
         warningCount:
             learnings.reduce((sum, learning) => sum + learning.warnings.length, 0) +
             skippedFiles.reduce((sum, file) => sum + file.warnings.length, 0),
+        skippedFiles,
+        diagnostics: resolvedFiles.diagnostics,
     }
 }
 
@@ -200,8 +206,12 @@ interface ResolvedLearningFile {
     rawText: string
 }
 
-async function resolveLearningFiles(repositoryRoot: string, globs: string[]): Promise<ResolvedLearningFile[]> {
+async function resolveLearningFiles(
+    repositoryRoot: string,
+    globs: string[],
+): Promise<{ files: ResolvedLearningFile[]; diagnostics: string[] }> {
     const files = new Map<string, string>()
+    const diagnostics: string[] = []
     const root = await realpath(repositoryRoot)
 
     for (const glob of globs) {
@@ -211,6 +221,7 @@ async function resolveLearningFiles(repositoryRoot: string, globs: string[]): Pr
         const directoryStat = await statOptionalDirectory(directoryPath)
 
         if (!directoryStat) {
+            diagnostics.push(`missing_learning_directory:${directory}`)
             continue
         }
 
@@ -250,9 +261,12 @@ async function resolveLearningFiles(repositoryRoot: string, globs: string[]): Pr
         }
     }
 
-    return [...files.entries()]
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([sourcePath, rawText]) => ({ sourcePath, rawText }))
+    return {
+        files: [...files.entries()]
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([sourcePath, rawText]) => ({ sourcePath, rawText })),
+        diagnostics,
+    }
 }
 
 async function statOptionalDirectory(directoryPath: string): Promise<Stats | undefined> {

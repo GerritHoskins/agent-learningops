@@ -54,14 +54,14 @@ describe('dashboard application facade', () => {
         await app.closeRepository()
     })
 
-    it('does not keep a stale repository open when switching to an invalid selection fails', async () => {
+    it('keeps the current repository open when switching to an invalid selection fails', async () => {
         const root = await createFixtureRepo()
         const app = createLearningOpsDesktopApplication()
         process.env.LEARNINGOPS_STATE_DIR = await mkdtemp(join(tmpdir(), 'learningops-dashboard-failed-switch-state-'))
 
         await app.openRepository({ repositoryRoot: root })
         await expect(app.switchRepository({ repositoryRoot: '   ' })).rejects.toThrow(/repositoryRoot/)
-        await expect(app.getSnapshot()).rejects.toThrow(/Select a repository first/)
+        await expect(app.getSnapshot()).resolves.toMatchObject({ repository: { repositoryRoot: root } })
     })
 
     it('returns a coherent snapshot and audit events for workflow commands', async () => {

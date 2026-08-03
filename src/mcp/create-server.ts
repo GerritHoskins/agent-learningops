@@ -95,6 +95,18 @@ export async function createLearningOpsMcpServer(
             jsonToolResult({
                 targetCount: app.config.targets.length,
                 targets: app.config.targets.map((target) => target.id),
+                configuredArtifacts: {
+                    proposalGlobs: app.config.proposalGlobs,
+                    receiptGlobs: app.config.receiptGlobs,
+                },
+                validators: app.config.targets.flatMap((target) =>
+                    target.validators.map((validator) => ({
+                        targetId: target.id,
+                        command: validator.command,
+                        args: validator.args,
+                        status: 'configured; execution requires an explicit trusted runner',
+                    })),
+                ),
             }),
     )
 
